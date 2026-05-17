@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2019-09/schema#",
   "$id": "https://github.com/artem1014/bank-statement-extraction-agent/specs/001-pdf-statement-extractor/contracts/extract-result.schema.json",
   "title": "ExtractResult",
-  "description": "Canonical structured output of the bank-statement extraction pipeline. Generated from packages/contracts/src/schemas.ts via zod-to-json-schema; do not edit by hand.",
+  "description": "Canonical structured output of one bank-statement extraction (one period). Generated from packages/contracts/src/schemas.ts via zod-to-json-schema; do not edit by hand.",
   "type": "object",
   "properties": {
     "account": {

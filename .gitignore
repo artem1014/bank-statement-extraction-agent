@@ -45,6 +45,9 @@ test-results/
 .vscode/
 *.swp
 *.swo
+*.tsbuildinfo
+*.tsbuildinfo.*
+*.rtf
 
 *.log
 logs/
@@ -57,7 +60,7 @@ data/processed/
 *.xlsx
 *.xls
 !examples/*.csv
-# PDFs are allowed in apps/api/tests/fixtures/ — see fixture tasks T053/T085/T113.
-# Reject only top-level / data PDFs.
 /*.pdf
 data/**/*.pdf
+/out/
+apps/api/scripts/.out/

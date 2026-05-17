@@ -5,20 +5,27 @@
 
 ## Summary
 
-Web-приложение для извлечения структурированного JSON из single-period PDF банковской
-выписки. Пользователь загружает PDF (опц. + OCR-текст), бэкенд восстанавливает текст,
-вызывает Anthropic Claude с tool-use для schema-enforced вывода, валидирует ответ
-через Zod, детерминированно выполняет арифметическую сверку (`beginning + Σdep − Σwd =
-ending` с допуском $0.01) и стримит прогресс по 4 стадиям через Server-Sent Events.
-Фронтенд показывает Account/Summary карточки, баннер сверки и searchable/sortable
-таблицу транзакций; кнопки Copy JSON / Download JSON отдают канонический результат.
+Web-приложение для извлечения структурированного JSON из PDF банковских выписок
+(single- и multi-period). Пользователь загружает PDF, бэкенд: (a) разбивает PDF на
+байт-ограниченные chunks (`pdf-lib`), (b) запускает **indexer pass** — OpenAI
+Responses API с vision видит cover-страницы и возвращает массив period markers, (c)
+для каждого периода вырезает соответствующие страницы и извлекает с помощью **chunked
+extractor pass**: 1 вызов получает account+summary, 1 вызов на каждые 2 страницы
+получает transaction rows (обход lazy-summarisation поведения gpt-4.1). Все ответы
+LLM приходят через Structured Outputs (`json_schema` strict mode); валидируются Zod;
+для каждого периода детерминированно считается reconciliation
+(`beginning + Σdep − Σwd = ending`, ε ≤ $0.01) через `decimal.js`. API стримит
+прогресс по стадиям через Server-Sent Events. Результат — `ExtractResult[]`, по одной
+записи на period. Фронт показывает каждый период отдельной карточкой с Account /
+Summary / Reconciliation badge / searchable Transactions table.
 
 **Технический подход** (см. `research.md` для обоснования): TypeScript-only монорепо
 на `pnpm workspaces` + `turbo`, бэкенд на Hono (Node.js 20), фронт на Vite + React 18
 + Tailwind + shadcn/ui + TanStack Query/Table, единый Zod-контракт в
-`packages/contracts`. Денежная арифметика — через `decimal.js`. PDF → текст через
-`unpdf`. Логирование — `pino` (с redact для секретов). Тесты — `vitest` + Playwright
-e2e. CI на GitHub Actions: `lint → typecheck → test → build`.
+`packages/contracts`. Денежная арифметика — `decimal.js`. PDF page-splitter — `pdf-lib`
+(text extraction не нужен: PDFs могут быть сканами без text layer, LLM читает их
+visualно через `input_file`). Логирование — `pino` (с redact). Тесты — `vitest` +
+Playwright e2e. CI на GitHub Actions: `lint → typecheck → test → build`.
 
 ## Technical Context
 
@@ -26,7 +33,7 @@ e2e. CI на GitHub Actions: `lint → typecheck → test → build`.
 **Runtime**: Node.js 20+ LTS (backend), modern evergreen browsers (frontend)
 **Primary Dependencies**:
 
-- Backend: `hono@^4`, `@anthropic-ai/sdk@^0.27`, `unpdf@^0.12`, `zod@^3.23`, `decimal.js@^10`, `pino@^9`, `pino-http@^10`
+- Backend: `hono@^4`, `openai@^4.85`, `pdf-lib@^1.17`, `zod@^3.23`, `decimal.js@^10`, `pino@^9`, `pino-http@^10`
 - Frontend: `react@^18`, `react-dom@^18`, `vite@^5`, `tailwindcss@^3`, `@tanstack/react-query@^5`, `@tanstack/react-table@^8`, `react-dropzone@^14`, `@radix-ui/*` (через shadcn/ui), `lucide-react`
 - Shared: `zod@^3.23`
 - Tooling: `pnpm@^9`, `turbo@^2`, `biome@^1.9`, `vitest@^2`, `@playwright/test@^1.46`, `husky@^9`, `lint-staged@^15`
@@ -65,12 +72,12 @@ e2e. CI на GitHub Actions: `lint → typecheck → test → build`.
 | **IV. Strict typing end-to-end** | ✅ Pass | Single Zod source in `packages/contracts/src/schemas.ts`; types inferred via `z.infer` and consumed by both `apps/api` and `apps/web`. LLM response parsed through the same Zod schema; invalid → `SchemaValidationError` after 1 retry (FR-008). |
 | **V. Deterministic where possible** | ✅ Pass | LLM client called with `temperature: 0`. `reconcile.ts`, `money.ts` and formatters are pure functions; covered by deterministic unit/snapshot tests. |
 | **§II. Architecture (data flow)** | ✅ Pass | Pipeline stages match the diagram: preprocess → chunk → llm → schema-validate → reconcile → enrich. Each stage emits an SSE event for UI progress (FR-017). |
-| **§III. Tech stack** | ✅ Pass | Backend stack (Node 20 + Hono + TS + Anthropic SDK + Zod + decimal.js + pino + vitest) and frontend stack (Vite + React 18 + TS + TanStack Query/Table + shadcn/ui + Tailwind + vitest + Playwright) match the constitution. Linter: Biome (one of two permitted options). |
+| **§III. Tech stack** | ✅ Pass | Backend stack (Node 20 + Hono + TS + OpenAI SDK + pdf-lib + Zod + decimal.js + pino + vitest) and frontend stack (Vite + React 18 + TS + TanStack Query/Table + shadcn/ui + Tailwind + vitest + Playwright) match the constitution v1.1.0. Linter: Biome. |
 | **§V Code quality / strict TS** | ✅ Pass | `tsconfig` base in `packages/tsconfig` with `strict: true`, `noUncheckedIndexedAccess`, etc.; functions ≤ 50 lines (enforced by review, not by lint to avoid false positives). |
 | **§V Testing strategy** | ✅ Pass | Unit tests required for `reconcile.ts`, `money.ts`; integration tests for the pipeline with mocked LLM and ≥ 2 fixtures (Ixonia + 1 other bank); 1 Playwright smoke. |
 | **§V Prompt management** | ✅ Pass | Prompts in `apps/api/src/prompts/*.md`, each with `prompt_version` frontmatter; few-shot examples in `prompts/examples/`. |
 | **§V Error handling** | ✅ Pass | Typed errors: `BAD_FILE`, `EXTRACTION_FAILED`, `LLM_UNAVAILABLE`, `RECONCILIATION_FAILED` (data-field, not HTTP). No stack traces in user-facing responses (FR-027). |
-| **§V Security** | ✅ Pass | MIME validation server-side (FR-003); 10 MB cap (FR-004); in-memory only (FR-028); CORS limited to web origin (FR-029); logs redact secrets (`pino` redact paths) and never include statement contents (FR-030, NFR-13); Anthropic key only via env (FR-031). |
+| **§V Security** | ✅ Pass | MIME validation server-side (FR-003); 100 MB cap (FR-004, MAX_PDF_BYTES); in-memory only (FR-028); CORS limited to web origin (FR-029); logs redact secrets (`pino` redact paths) and never include statement contents (FR-030, NFR-13); OpenAI key only via env (FR-031, `OPENAI_API_KEY`). |
 | **§V Performance budgets** | ✅ Pass | p95 ≤ 20s extract (NFR-1) — within typical Sonnet 4.6 latency for 10-page input; bundle target ≤ 250 KB gzipped enforced by `vite build` size check in CI. |
 | **§VII Out of scope** | ✅ Pass | No auth, no DB, no non-PDF formats, no categorisation, no multi-period support. Plan stays inside the perimeter. |
 
@@ -110,11 +117,11 @@ specs/001-pdf-statement-extractor/
 │   │   │   │   ├── extract.ts                # POST /api/extract (SSE stream)
 │   │   │   │   └── health.ts                 # GET /api/health
 │   │   │   ├── pipeline/
-│   │   │   │   ├── extract.ts                # orchestrator
-│   │   │   │   ├── preprocess.ts             # PDF → text via unpdf
-│   │   │   │   ├── chunk.ts                  # page chunking helper
-│   │   │   │   ├── llm-client.ts             # Anthropic SDK adapter
-│   │   │   │   ├── reconcile.ts              # deterministic balance check
+│   │   │   │   ├── extract.ts                # orchestrator: index pass → per-period chunked extract → reconcile
+│   │   │   │   ├── pdf-splitter.ts           # size-bounded PDF page-range splitter (pdf-lib)
+│   │   │   │   ├── openai-client.ts          # OpenAI Responses API + Files API adapter
+│   │   │   │   ├── openai-schemas.ts         # JSON schemas for Structured Outputs (strict mode)
+│   │   │   │   ├── reconcile.ts              # deterministic per-period balance check
 │   │   │   │   └── stage-emitter.ts          # SSE progress helper
 │   │   │   ├── prompts/
 │   │   │   │   ├── system.md                 # role + non-negotiables

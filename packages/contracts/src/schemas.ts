@@ -65,9 +65,11 @@ export const ExtractResultSchema = z.object({
   extraction: ExtractionMetadataSchema,
 });
 
+export const ExtractResultArraySchema = z.array(ExtractResultSchema);
+
 const LlmSummarySchema = SummarySchema.omit({ reconciliation: true });
 const LlmExtractionMetadataSchema = z.object({
-  warnings: z.array(z.string().min(1)),
+  warnings: z.array(z.string()),
 });
 
 export const LlmExtractionInputSchema = z.object({
@@ -75,6 +77,10 @@ export const LlmExtractionInputSchema = z.object({
   summary: LlmSummarySchema,
   transactions: z.array(TransactionSchema),
   extraction: LlmExtractionMetadataSchema,
+});
+
+export const LlmExtractionInputArraySchema = z.object({
+  periods: z.array(LlmExtractionInputSchema),
 });
 
 export type IsoDate = z.infer<typeof IsoDateSchema>;
@@ -87,4 +93,6 @@ export type SourceSpan = z.infer<typeof SourceSpanSchema>;
 export type Transaction = z.infer<typeof TransactionSchema>;
 export type ExtractionMetadata = z.infer<typeof ExtractionMetadataSchema>;
 export type ExtractResult = z.infer<typeof ExtractResultSchema>;
+export type ExtractResultArray = z.infer<typeof ExtractResultArraySchema>;
 export type LlmExtractionInput = z.infer<typeof LlmExtractionInputSchema>;
+export type LlmExtractionInputArray = z.infer<typeof LlmExtractionInputArraySchema>;

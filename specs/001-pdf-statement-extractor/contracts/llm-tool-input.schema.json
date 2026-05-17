@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2019-09/schema#",
   "$id": "https://github.com/artem1014/bank-statement-extraction-agent/specs/001-pdf-statement-extractor/contracts/llm-tool-input.schema.json",
   "title": "LlmExtractionInput",
-  "description": "Input shape for the Anthropic `submit_extraction` tool. Identical to ExtractResult except that `summary.reconciliation` is omitted: the LLM is responsible for observations (account, summary aggregates, transactions, source spans), while the server-side pipeline computes reconciliation deterministically and assembles the final ExtractResult. Generated from packages/contracts/src/schemas.ts via zod-to-json-schema; do not edit by hand.",
+  "description": "Input shape for the LLM tool / structured-output call (single period). Identical to ExtractResult except that `summary.reconciliation` is omitted: the LLM is responsible for observations (account, summary aggregates, transactions, source spans), while the server-side pipeline computes reconciliation deterministically and assembles the final ExtractResult. Generated from packages/contracts/src/schemas.ts via zod-to-json-schema; do not edit by hand.",
   "type": "object",
   "properties": {
     "account": {
@@ -187,8 +187,7 @@
         "warnings": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           }
         }
       },

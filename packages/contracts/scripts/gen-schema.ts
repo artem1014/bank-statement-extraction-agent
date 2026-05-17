@@ -2,7 +2,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { ExtractResultSchema, LlmExtractionInputSchema } from '../src/schemas.js';
+import {
+  ExtractResultArraySchema,
+  ExtractResultSchema,
+  LlmExtractionInputArraySchema,
+  LlmExtractionInputSchema,
+} from '../src/schemas.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -22,21 +27,39 @@ const ENTRIES: SchemaEntry[] = [
     name: 'ExtractResult',
     filename: 'extract-result.schema.json',
     description:
-      'Canonical structured output of the bank-statement extraction pipeline. ' +
+      'Canonical structured output of one bank-statement extraction (one period). ' +
       'Generated from packages/contracts/src/schemas.ts via zod-to-json-schema; ' +
       'do not edit by hand.',
+  },
+  {
+    schema: ExtractResultArraySchema,
+    name: 'ExtractResultArray',
+    filename: 'extract-result-array.schema.json',
+    description:
+      'Top-level result of the multi-period extraction pipeline: ' +
+      'an ordered array of ExtractResult, one entry per statement period present in the PDF. ' +
+      'Generated from packages/contracts/src/schemas.ts via zod-to-json-schema; do not edit by hand.',
   },
   {
     schema: LlmExtractionInputSchema,
     name: 'LlmExtractionInput',
     filename: 'llm-tool-input.schema.json',
     description:
-      'Input shape for the Anthropic `submit_extraction` tool. Identical to ExtractResult ' +
-      'except that `summary.reconciliation` is omitted: the LLM is responsible for ' +
-      'observations (account, summary aggregates, transactions, source spans), while the ' +
-      'server-side pipeline computes reconciliation deterministically and assembles the ' +
-      'final ExtractResult. Generated from packages/contracts/src/schemas.ts via ' +
-      'zod-to-json-schema; do not edit by hand.',
+      'Input shape for the LLM tool / structured-output call (single period). ' +
+      'Identical to ExtractResult except that `summary.reconciliation` is omitted: ' +
+      'the LLM is responsible for observations (account, summary aggregates, transactions, ' +
+      'source spans), while the server-side pipeline computes reconciliation deterministically ' +
+      'and assembles the final ExtractResult. Generated from packages/contracts/src/schemas.ts ' +
+      'via zod-to-json-schema; do not edit by hand.',
+  },
+  {
+    schema: LlmExtractionInputArraySchema,
+    name: 'LlmExtractionInputArray',
+    filename: 'llm-tool-input-array.schema.json',
+    description:
+      'Multi-period LLM input shape: { periods: LlmExtractionInput[] }. ' +
+      'Used by the OpenAI Responses API with Structured Outputs. ' +
+      'Generated from packages/contracts/src/schemas.ts via zod-to-json-schema; do not edit by hand.',
   },
 ];
 

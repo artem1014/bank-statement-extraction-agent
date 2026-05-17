@@ -3,7 +3,7 @@
 **Feature Branch**: `001-pdf-statement-extractor`
 **Created**: 2026-05-17
 **Status**: Draft
-**Input**: User description: «Extract structured JSON from a single-period PDF bank statement with web UI, progress stages and deterministic reconciliation»
+**Input**: User description: «Extract structured JSON from a PDF bank statement (single- or multi-period) with web UI, progress stages, and deterministic reconciliation. Output is an array of per-period results.»
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -79,7 +79,7 @@ While extraction is running, the user should see clear progress through the pipe
 - **PDF exceeds the 10 MB limit** (or OCR text exceeds the 2 MB limit): Validation blocks the request client-side before upload, with a plain-language message.
 - **OCR file does not correspond to the PDF**: System cannot detect mismatch perfectly; uses OCR as text source per assumption, and any resulting reconciliation failure is surfaced via the standard mismatch banner (User Story 2).
 - **Ambiguous transaction line** where deposit vs. withdrawal cannot be determined: Both fields are null, the row is still listed, and a warning is added to the extraction warnings list. The user sees the warning and can investigate.
-- **Multi-period statement** (more than one billing period in a single PDF): Out of scope — see Assumptions. The system MAY accept the file but is NOT required to correctly partition the periods; users are advised to provide single-period statements.
+- **Multi-period statement** (more than one billing period in a single PDF): In scope. The pipeline detects every statement period in the document (indexer pass) and extracts each independently; the API result is an ordered `ExtractResult[]` with one entry per period. Cross-period analytics (balance trends, period-to-period diffing) remain out of scope — the array is just per-period extractions concatenated, not a unified ledger.
 - **Non-English statement**: Out of scope; behaviour is undefined. The system MAY still succeed but is not evaluated against such inputs.
 - **LLM provider is unavailable or rate-limited**: User-facing `LLM_UNAVAILABLE` message with a «Try again» action; no partial result is shown.
 - **Invalid structured response from the AI** (does not match the contract): One automatic retry with a corrective prompt; if it still fails, surface `EXTRACTION_FAILED` to the user.
@@ -159,10 +159,10 @@ The canonical structured result returned to the user (and downloadable as JSON) 
 
 ### Measurable Outcomes
 
-- **SC-001**: For the reference Ixonia sample, every one of the six summary values matches the human-curated reference exactly, the reconciliation badge is green, the transaction count equals 192, and the result is produced within 20 seconds end-to-end.
+- **SC-001**: For the reference Ixonia sample (`Binder2_Redacted.pdf`, 99 pages, 10 statement periods), the API returns an `ExtractResult[]` of length 10. For each period the six summary values match the human-curated etalon row exactly. For the canonical Apr 2025 period specifically: deposits_count = 81, deposits_total = $1,214,254.05, withdrawals_count = 111, withdrawals_total = $1,302,201.16, transactions array length = 192, reconciliation badge green. Wall-clock end-to-end ≤ 60s × periods.
 - **SC-002**: For two additional bank statements never seen during development, the system produces structured results without any code change; at least 90 % of summary fields match the human-curated references and reconciliation behaviour (pass or correctly-reported delta) is correct in 100 % of cases.
 - **SC-003**: For an intentionally-mistuned statement (totals off by exactly $2.00), the system returns a result with the mismatch banner shown, `delta = $2.00`, and the user is able to download the JSON anyway.
-- **SC-004**: 95 % of single-period statements up to 10 pages complete extraction in under 20 seconds, measured end-to-end from upload to result display.
+- **SC-004**: 95 % of single-period statements up to 10 pages complete extraction in under 60 seconds, measured end-to-end from upload to result display. For multi-period documents the budget applies per period.
 - **SC-005**: The user perceives progress: during any successful run, no single visible stage stays in the `active` state for more than 15 seconds without showing the «still working…» annotation, and the overall progress UI is updated within 200 ms of each stage transition.
 - **SC-006**: For each of the failure modes listed in FR-026, the user sees a plain-language message and (where applicable) a working «Try again» action; in no case is a stack trace, raw error or internal code shown.
 - **SC-007**: A first-time user, given only the landing page and a PDF file, successfully obtains a structured result on the first attempt without external instructions, in ≥ 90 % of usability sessions.
@@ -170,7 +170,7 @@ The canonical structured result returned to the user (and downloadable as JSON) 
 
 ## Assumptions
 
-- **Scope is single-period statements.** The system targets statements that cover one billing period (typically one month). Multi-period statements in a single PDF are out of scope for this feature.
+- **Scope covers both single-period and multi-period statements.** A "statement period" is one bank-statement document; the pipeline indexes every period in the PDF (look for "Statement Period" / "Statement Date" headers, fresh cover pages, new "Beginning Balance" markers) and runs the extractor independently on each. Cross-period inference (balance trends, period-to-period diffing, deduplicating transactions across periods) is out of scope: the response is `ExtractResult[]` and consumers do their own aggregation.
 - **English-language statements only.** Behaviour on statements in other languages is undefined; the test corpus is English.
 - **The product is a web UI on top of a server-side extraction service.** A command-line front door or public HTTP API is not a deliverable of this feature; the extraction service exists only to back the UI.
 - **Single user, no authentication, no persistence between requests.** This is a demo / single-operator tool. There is no login, no per-user state, and no stored history of past extractions.

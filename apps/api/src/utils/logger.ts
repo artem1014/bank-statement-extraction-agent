@@ -5,10 +5,10 @@ const REDACT_PATHS = [
   'req.headers.authorization',
   'req.headers.cookie',
   'req.body',
-  '*.ANTHROPIC_API_KEY',
-  '*.anthropic_api_key',
-  'env.ANTHROPIC_API_KEY',
-  'env.anthropic_api_key',
+  '*.OPENAI_API_KEY',
+  '*.openai_api_key',
+  'env.OPENAI_API_KEY',
+  'env.openai_api_key',
 ];
 
 export const logger = pino({

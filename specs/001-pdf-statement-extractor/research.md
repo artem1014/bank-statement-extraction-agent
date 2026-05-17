@@ -11,67 +11,96 @@ v1.0.0).
 
 ---
 
-## R-1. LLM model selection
+## R-1. LLM provider & model selection
 
-- **Decision**: Default to **Claude Sonnet 4.6** (`claude-sonnet-4-6`) for the primary
-  extraction call. On a single invalid-JSON failure, retry with the **same model** and
-  a corrective system message. Do **not** automatically escalate to a different model on
-  retry.
+- **Decision**: Default to **OpenAI `gpt-4.1`** via the **Responses API** with native
+  PDF input (`input_file`) and Structured Outputs (`response_format`-like
+  `text.format.type = "json_schema"`, `strict: true`). Files are uploaded with
+  `purpose: 'user_data'` and deleted after each call. A single retry is performed if
+  the LLM returns transactions count significantly lower than the declared
+  `summary.*_count` (lazy-summarisation guard).
 - **Rationale**:
-  - Sonnet 4.6 is the best price/latency/quality balance in the Anthropic line-up for
-    schema-constrained structured output (Anthropic tool-use); 10-page statement
-    extractions consistently fit inside the NFR-1 budget (≤ 20 s) with this model.
-  - A single retry on schema failure (FR-008, NFR-8) is enough to absorb transient
-    formatting issues; further retries either waste latency budget or mask a genuine
-    document-quality issue that the user should see.
-  - Cross-model escalation (e.g. Opus on retry) complicates determinism and reproducibility
-    of failures — better to surface `EXTRACTION_FAILED` and let the operator decide.
+  - The production demo PDF (`Binder2_Redacted.pdf`, 56 MB, 99 pages) is an
+    image-only scan with no embedded text layer — `unpdf`-style text extraction
+    yields zero characters. OpenAI's Responses API accepts the PDF directly and
+    handles vision internally, removing a whole class of preprocessing failure
+    modes (broken OCR, mis-recognised columns, etc.).
+  - Structured Outputs `strict: true` guarantees the JSON conforms to the supplied
+    schema (no missing keys, no extra keys, no malformed nesting); we still
+    re-validate with Zod afterwards.
+  - `gpt-4.1` (1 M-token context, 32 K-token max output) is the cheapest OpenAI
+    vision-capable model that comfortably handles per-period summary+transactions
+    in a single call.
 - **Alternatives considered**:
-  - *Haiku 4.5 as default*: rejected — accuracy on long, dense tabular text is lower; the
-    cost saving doesn't justify the accuracy risk for a demo whose value proposition is
-    trust in numbers.
-  - *Opus 4 as default*: rejected — latency budget violation for 10-page inputs and
-    higher cost without a measurable accuracy gain on the Ixonia reference.
-  - *Anthropic via Bedrock or Vertex*: rejected for v1 — adds infra surface for a demo;
-    direct Anthropic API is enough.
+  - *Anthropic Claude Sonnet / Opus*: was the v1.0 choice; switched because the
+    user supplied only an OpenAI API key and we don't want a multi-vendor matrix
+    for a single-key demo.
+  - *gpt-4o / gpt-4o-mini*: rejected for default — `gpt-4o-mini` lazily summarises
+    long lists even more aggressively than `gpt-4.1`; `gpt-4o` has a smaller
+    context window with no compensating accuracy benefit for this task.
+  - *OpenAI Assistants API*: rejected — its file-attachment retrieval is opaque
+    for vision-PDFs (it converts to text under the hood, which collapses for our
+    image-only PDF). Responses API + `input_file` keeps us on the pure-vision
+    path.
 
-## R-2. Anthropic structured output strategy
+## R-2. OpenAI Structured Outputs strategy
 
-- **Decision**: Use **tool-use with a single tool** named `submit_extraction` whose
-  `input_schema` is the JSON Schema generated from the Zod `ExtractResultSchema`. The
-  model is forced to call this tool (`tool_choice: { type: "tool", name: "submit_extraction" }`),
-  and the tool's `input` is what the pipeline reads back. `temperature: 0`, no
-  `top_p` override.
+- **Decision**: Each LLM call uses `text.format.type = "json_schema"` with
+  `strict: true` and a hand-authored JSON schema (NOT the auto-generated Zod
+  schema). Two schemas are used:
+  1. `PERIOD_MARKER_SCHEMA` — for the indexer pass, returns `{ periods: [...] }`
+     where each entry has page range, dates, account_last4, bank.
+  2. `PERIOD_EXTRACT_SCHEMA` — for the per-period extractor, returns the full
+     `{ account, summary, transactions, extraction.warnings }` envelope.
+  3. `TRANSACTIONS_ONLY_SCHEMA` — for the chunked transaction extractor, returns
+     `{ transactions, warnings }` (no summary/account, since those come from
+     elsewhere). Used in 2-page sub-windows to bypass lazy summarisation.
+  All three are kept in `apps/api/src/pipeline/openai-schemas.ts`. `temperature: 0`.
 - **Rationale**:
-  - Tool-use is Anthropic's first-class way to obtain schema-conformant output and
-    produces fewer JSON formatting errors than free-form text + JSON parsing.
-  - The input schema is generated from the Zod definition (`zod-to-json-schema`), so the
-    LLM contract and the runtime validator are mechanically aligned — no manual drift.
-  - `temperature: 0` keeps the result deterministic for snapshot/integration tests
-    (constitution §V).
+  - OpenAI's strict mode rejects some JSON Schema features that `zod-to-json-schema`
+    emits by default (`pattern`, `minLength`, `format`, etc.). Hand-authoring keeps
+    these constraints in the **runtime Zod validator only**; the LLM schema
+    intentionally permits the looser shape so the model isn't forced to refuse
+    strings that fail a regex it can't see.
+  - Splitting the extractor into two schemas (full envelope + transactions-only)
+    is what makes chunked extraction tractable: we pay one expensive "full"
+    call per period for account/summary, then cheap per-window calls for the
+    long transaction list.
 - **Alternatives considered**:
-  - *Prompt-only JSON mode (assistant prefill + parse)*: rejected — higher rate of
-    malformed JSON on long documents, and no schema enforcement at provider level.
-  - *Multiple tools (per entity)*: rejected — unnecessary indirection; a single tool
-    matches our single result envelope and keeps few-shot examples readable.
+  - *`json_object` mode without schema*: rejected — too easy for the model to
+    drop fields when the task is large.
+  - *Tool/function calling*: rejected — Structured Outputs with `strict: true`
+    is the simpler equivalent for a single-shape output; no need to model the
+    "submit_extraction" tool indirection.
 
-## R-3. PDF → text extraction library
+## R-3. PDF preprocessing strategy
 
-- **Decision**: Use **`unpdf`** (`@^0.12`) for both server-side text extraction and
-  page-level coordinate hints needed for `source_span` page references.
+- **Decision**: **No server-side text extraction.** The pipeline passes the PDF
+  directly to OpenAI as `input_file`. The only preprocessing is page-range slicing
+  via `pdf-lib`:
+  - **Indexer pass** splits the source PDF into 20-page chunks (size-capped at
+    ~28 MB to stay under OpenAI's 32 MB file limit), then asks the LLM to
+    enumerate every statement period inside each chunk.
+  - **Extractor pass** per period: cuts out exactly the pages belonging to that
+    period, then further sub-slices into 2-page windows for the
+    transactions-only calls.
 - **Rationale**:
-  - `unpdf` is a modern, ESM-first, TypeScript-typed wrapper over `pdfjs-dist`, runs in
-    Node ≥ 18 without `canvas` native deps, and exposes page-level text streams with
-    bounding boxes — which we use for `source_span` when no OCR file is provided.
-  - It works in Hono on Node 20 and (later, if we ever care) on Workers / Edge runtimes
-    with the same API.
+  - The production PDF has no embedded text layer; any text-extraction library
+    returns the empty string. Vision is required, and OpenAI handles vision
+    internally given the raw PDF.
+  - `pdf-lib` is a pure-JS, no-native-deps page-range editor: deterministic
+    output, ESM-first, well-typed.
+  - Size-capped chunking is mandatory because OpenAI Files API rejects PDFs
+    larger than ~32 MB. A binary-search inside `pdf-splitter` finds the largest
+    page-count whose serialised bytes fit the budget.
 - **Alternatives considered**:
-  - *`pdf-parse`*: rejected — abandoned package, ships pdfjs 1.x, no native ESM, weak
-    types; no positional info exposed.
-  - *`pdfjs-dist` directly*: rejected — works, but boilerplate for both Node SSR usage
-    and stream-to-text conversion is what `unpdf` already wraps.
-  - *Native `pdftotext`*: rejected — requires a binary dependency in the container; we'd
-    rather keep the API service pure-Node for portability.
+  - *`unpdf` / `pdfjs-dist` for text*: rejected — yields empty text on
+    image-only scans (verified on `Binder2_Redacted.pdf`).
+  - *Server-side OCR via Tesseract*: rejected — adds a heavy native dep, and
+    OCR quality on bank-statement columns is brittle vs. vision LLM.
+  - *Rasterising each page to PNG and sending `input_image`*: rejected — adds a
+    second native dep (canvas), and the per-image token billing is higher than
+    a single PDF upload.
 
 ## R-4. `source_span` representation
 
@@ -280,13 +309,15 @@ v1.0.0).
 
   ```ts
   const Env = z.object({
-    NODE_ENV: z.enum(['development', 'test', 'production']).default('production'),
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().positive().default(8080),
-    CORS_ORIGIN: z.string().url(),
-    ANTHROPIC_API_KEY: z.string().min(1),
-    ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
+    CORS_ORIGIN: z.string().url().default('http://localhost:5173'),
+    OPENAI_API_KEY: z.string().min(1),
+    OPENAI_MODEL: z.string().default('gpt-4.1'),
+    OPENAI_CHUNK_BUDGET_BYTES: z.coerce.number().int().positive().default(28 * 1024 * 1024),
+    OPENAI_CHUNK_PAGE_BUDGET: z.coerce.number().int().positive().default(20),
     LOG_LEVEL: z.enum(['fatal','error','warn','info','debug','trace']).default('info'),
-    MAX_PDF_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+    MAX_PDF_BYTES: z.coerce.number().int().positive().default(100 * 1024 * 1024),
     MAX_OCR_BYTES: z.coerce.number().int().positive().default(2 * 1024 * 1024),
   });
   ```
@@ -299,7 +330,40 @@ v1.0.0).
 - **Alternatives considered**:
   - *`envalid`*: rejected — adds a dep where Zod already does the job.
 
-## R-17. Deployment surface
+## R-17. Multi-period extraction strategy
+
+- **Decision**: Two-pass pipeline.
+  1. **Indexer pass** — split the source PDF into ≤ 20-page, ≤ 28 MB chunks, call
+     `openai.responses.create` once per chunk with `PERIOD_MARKER_SCHEMA`. Each
+     LLM response enumerates the statement periods present in that chunk
+     (1-indexed page range relative to the chunk, plus continuation flags,
+     dates, account_last4, bank). The orchestrator merges markers across chunks
+     into absolute-page ranges via a bucket by `(start_date, end_date,
+     account_last4)`; continuation fragments (dates=null + `continues_before_chunk`)
+     are appended to the trailing bucket.
+  2. **Extractor pass** per period — for each merged period, the orchestrator
+     materialises a single sub-PDF spanning exactly its absolute pages and runs
+     two calls:
+     - one "full" call (`PERIOD_EXTRACT_SCHEMA`) that returns account + summary
+       + a possibly-truncated transactions list;
+     - N "transaction-window" calls (`TRANSACTIONS_ONLY_SCHEMA`, 2 pages each)
+       that return the complete printed transaction list for each slice.
+     Per-period transactions are deduped on
+     `(date, lowercased(description), deposit, withdrawal)`, the window-call
+     transactions take precedence (they're more complete), and the summary is
+     used verbatim. Reconciliation is computed deterministically per period.
+- **Rationale**:
+  - One-shot extraction of a 99-page document is technically possible inside
+    `gpt-4.1`'s 1 M-token context, but the model exhibits well-known
+    lazy-summarisation behaviour on long printed lists ("Only the first 40
+    transactions are shown due to response length limits" is verbatim what we
+    saw on Apr 2025 alone). Splitting per-period and per-window forces the
+    model into a small, exhaustible task on each call.
+  - The indexer pass is cheap (one cheap-output call per 20 pages) and gives
+    deterministic page ranges for the extractor pass, so the extractor never
+    has to guess where a period starts or ends.
+
+## R-18. Deployment surface
 
 - **Decision**: For v1 demo, a `Dockerfile` for `apps/api` and a static build of
   `apps/web`. Hosting choice is out of scope for this plan (it's a deployment
@@ -313,9 +377,11 @@ v1.0.0).
 
 | # | Question | Resolution |
 |---|---|---|
-| OQ-1 | LLM model | R-1: Sonnet 4.6 default, single retry on schema failure (no cross-model escalation). |
+| OQ-1 | LLM model | R-1: OpenAI `gpt-4.1` via Responses API + Structured Outputs (strict). |
 | OQ-2 | Per-row running balance | R-5: out of scope for v1. |
-| OQ-3 | Ambiguous deposit/withdrawal | R-6: both fields null + warning; minor schema refinement deferred to a constitution PATCH. |
+| OQ-3 | Ambiguous deposit/withdrawal | R-6: both fields null + warning; constitution PATCH 1.0.1 already encoded. |
 | OQ-4 | Rate limiting | R-9: deferred; document in README "known weaknesses". |
+| OQ-5 | Multi-period documents | R-17: two-pass indexer+extractor, output is `ExtractResult[]`. |
+| OQ-6 | Scanned PDFs without text layer | R-3: no server-side text extraction; OpenAI vision reads the raw PDF. |
 
 No `NEEDS CLARIFICATION` markers remain. Ready for Phase 1 design artefacts.

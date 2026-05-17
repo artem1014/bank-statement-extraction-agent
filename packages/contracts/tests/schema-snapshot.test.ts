@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..');
 const SCHEMA_FILES = [
   'specs/001-pdf-statement-extractor/contracts/extract-result.schema.json',
+  'specs/001-pdf-statement-extractor/contracts/extract-result-array.schema.json',
   'specs/001-pdf-statement-extractor/contracts/llm-tool-input.schema.json',
+  'specs/001-pdf-statement-extractor/contracts/llm-tool-input-array.schema.json',
 ] as const;
 
 describe('JSON Schema drift detector', () => {

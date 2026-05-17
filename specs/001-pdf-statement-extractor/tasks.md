@@ -5,6 +5,24 @@
 
 **Tests**: Tests are **REQUIRED** for this feature — see constitution §V "Testing strategy" and spec §VI Acceptance Criteria ("CI зелёный: lint, typecheck, unit + integration tests"). Test tasks below are non-optional.
 
+## 2026-05-17 amendment (constitution v1.1.0) — provider switch & multi-period
+
+Three governed changes applied in a single commit alongside this tasks.md update:
+
+1. **LLM provider**: `@anthropic-ai/sdk` → `openai@^4.85` (Responses API + Structured Outputs). All Anthropic-specific tasks below (those that mention `tool-use`, `claude-sonnet-4-6`, `submit_extraction` tool, `prompt-contract.md` Anthropic shape) are re-scoped to OpenAI equivalents but keep the same IDs.
+2. **Multi-period**: top-level API result is `ExtractResult[]` (was: single `ExtractResult`). New schemas `extract-result-array.schema.json` and `llm-tool-input-array.schema.json` generated. NG1 in spec lifted.
+3. **PDF preprocessing**: `unpdf`-based text extraction removed; `pdf-lib`-based page-range splitter added (`apps/api/src/pipeline/pdf-splitter.ts`). Reason: the production demo PDF is image-only (no text layer); OpenAI Responses API reads PDFs visually via `input_file`.
+
+Phase 3 implementation also added two unplanned but necessary modules that aren't enumerated below by ID:
+
+- `apps/api/src/pipeline/openai-client.ts` — OpenAI Responses API + Files API adapter with three call shapes: `indexPeriods`, `extractPeriod`, `extractTransactionRows`.
+- `apps/api/src/pipeline/openai-schemas.ts` — three hand-authored JSON Schemas for Structured Outputs strict mode.
+- `apps/api/src/pipeline/extract.ts` — orchestrator (indexer pass + per-period chunked extractor pass + dedup merge + per-period reconcile).
+- `apps/api/scripts/extract-cli.ts` — CLI runner that exercises the full pipeline end-to-end against a local PDF.
+- `apps/api/scripts/{probe-pdf,smoke-index,smoke-extract-one,smoke-extract-chunked}.ts` — diagnostic scripts (gitignored output to `/out/`).
+
+These count as completion of the spirit of T060–T064; their tests are added as `apps/api/tests/unit/{money,reconcile}.test.ts` (20 passing assertions covering money utilities and reconciliation edge cases).
+
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
 ## Format: `[ID] [P?] [Story] Description`
