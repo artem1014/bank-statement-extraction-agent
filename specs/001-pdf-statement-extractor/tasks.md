@@ -55,13 +55,13 @@ All paths below are relative to the repo root.
 
 - [ ] T015 Initialise `packages/contracts/package.json` with name `@app/contracts`, `type: module`, build script (`tsc -p .`), `gen-schema` script, deps: `zod@^3.23`, devDeps: `zod-to-json-schema@^3.23`, `typescript@^5.4`
 - [ ] T016 Create `packages/contracts/tsconfig.json` extending `packages/tsconfig/node.json`, output to `dist/`
-- [ ] T017 [P] Implement `packages/contracts/src/schemas.ts` — Zod schemas for `AccountSchema`, `PeriodSchema`, `SummarySchema`, `ReconciliationSchema`, `SourceSpanSchema`, `TransactionSchema`, `ExtractionMetadataSchema`, `ExtractResultSchema` per `data-model.md` (exclude the deposit/withdrawal XOR refinement per research.md R-6)
+- [ ] T017 [P] Implement `packages/contracts/src/schemas.ts` — Zod schemas for `AccountSchema`, `PeriodSchema`, `SummarySchema`, `ReconciliationSchema`, `SourceSpanSchema`, `TransactionSchema`, `ExtractionMetadataSchema`, `ExtractResultSchema` per `data-model.md` (no XOR refinement on `TransactionSchema` — direction rule is enforced in the pipeline per constitution v1.0.1 §IV). Also export a derived `LlmExtractionInputSchema` via `ExtractResultSchema.omit({...})` such that `summary.reconciliation` is removed and `extraction` is reduced to `{ warnings }`; this is the runtime validator for the Anthropic tool-use response (see `contracts/prompt-contract.md` "Schema source")
 - [ ] T018 [P] Implement `packages/contracts/src/errors.ts` exporting the `ErrorCode` union (`'BAD_FILE'|'EXTRACTION_FAILED'|'LLM_UNAVAILABLE'`) and a Zod schema for the SSE/HTTP error body
 - [ ] T019 [P] Implement `packages/contracts/src/sse.ts` exporting `StageName`, `StageStatus`, and Zod schemas for `StageEventDataSchema`, `ResultEventDataSchema`, `ErrorEventDataSchema`
 - [ ] T020 Implement `packages/contracts/src/index.ts` re-exporting all public types and schemas
-- [ ] T021 Implement `packages/contracts/scripts/gen-schema.ts` that converts `ExtractResultSchema` to JSON Schema Draft 2020-12 (via `zod-to-json-schema`) and writes `specs/001-pdf-statement-extractor/contracts/extract-result.schema.json`; wire `pnpm -F @app/contracts run gen-schema`
+- [ ] T021 Implement `packages/contracts/scripts/gen-schema.ts` that converts **both** `ExtractResultSchema` and `LlmExtractionInputSchema` to JSON Schema Draft 2020-12 (via `zod-to-json-schema`) and writes `specs/001-pdf-statement-extractor/contracts/extract-result.schema.json` and `specs/001-pdf-statement-extractor/contracts/llm-tool-input.schema.json` respectively; wire `pnpm -F @app/contracts run gen-schema`
 - [ ] T022 [P] Add `packages/contracts/tests/schemas.test.ts` — round-trip tests: parse `data-model.md` Ixonia example, assert valid; mutate fields to invalid values, assert each produces a typed Zod issue
-- [ ] T023 [P] Add `packages/contracts/tests/schema-snapshot.test.ts` — runs `gen-schema` script and asserts the committed `extract-result.schema.json` is byte-equal to the generated output (drift detector)
+- [ ] T023 [P] Add `packages/contracts/tests/schema-snapshot.test.ts` — runs `gen-schema` script and asserts that both committed JSON Schemas (`extract-result.schema.json` and `llm-tool-input.schema.json`) are byte-equal to the generated output (drift detector)
 
 ### `apps/api` — backend skeleton
 
@@ -107,6 +107,8 @@ All paths below are relative to the repo root.
 
 **Goal**: A user drops a PDF (optionally + OCR text), clicks Extract, and within 20 seconds sees Account card, Summary card, Transactions table, and can Copy/Download a valid JSON result. (This phase does **not** yet enforce reconciliation correctness — `summary.reconciliation` is filled with a placeholder; US2 makes it real.)
 
+**Tasks**: T051–T073 (23 main tasks) + T111, T112 (2 added during post-analyze remediation: no-disk-persistence, log-sanitization tests)
+
 **Independent Test**: Per spec §AC-1 (without the reconciliation badge assertion): upload `apps/api/tests/fixtures/ixonia.{pdf,ocr.txt}`, observe Account, Summary (six values), 192-row table, Copy JSON produces a payload that validates against `extract-result.schema.json`.
 
 ### Tests for User Story 1 (REQUIRED)
@@ -120,13 +122,15 @@ All paths below are relative to the repo root.
 - [ ] T057 [P] [US1] Add `apps/web/tests/unit/format.test.ts` — `formatMoney`, `formatDate`, `formatPeriod`, `maskAccount` covering FR-021 examples
 - [ ] T058 [P] [US1] Add `apps/web/tests/unit/sse.test.ts` — `readSse` correctly parses a fixed event stream (stage→stage→…→result), rejects unknown events, validates payload Zod
 - [ ] T059 [US1] Add `apps/web/tests/e2e/extract-ixonia.spec.ts` Playwright smoke — boot `vite preview` + a `wiremock`-style fake API (serves SSE from the recorded fixture); drop the fixture, click Extract, assert Account text, six summary numbers, 192 rows, then click Download JSON and assert the file parses against `extract-result.schema.json`
+- [ ] T111 [P] [US1] Add `apps/api/tests/integration/no-disk-persistence.test.ts` — stubs `fs.writeFile` / `fs.writeFileSync` / `fs.createWriteStream` / `fs.promises.writeFile` to throw if invoked during request handling; runs the Ixonia integration fixture through `/api/extract` with a fake LLM; asserts the response completes successfully and **none** of the stubbed functions were called (FR-028 / NFR-9)
+- [ ] T112 [P] [US1] Add `apps/api/tests/integration/log-sanitization.test.ts` — installs a pino transport that captures every emitted log object into an array; runs the Ixonia integration fixture; asserts that no captured log line contains either a 32-character substring of the OCR text or a substring of the masked Anthropic API key (FR-030 / NFR-13 / FR-031). Use a distinctive marker string in the test fixture so the search is reliable.
 
 ### Implementation for User Story 1
 
 - [ ] T060 [US1] Implement `apps/api/src/pipeline/preprocess.ts` — if OCR `Buffer` provided, decode as UTF-8 and return as `{ text, mode: 'ocr' }`; else run `unpdf` over the PDF buffer, concatenate per-page text with `\n`, return `{ text, mode: 'pdf', pageOffsets }` where `pageOffsets[i]` is the character offset where page `i+1` starts (used later by the LLM via `source_span`)
 - [ ] T061 [P] [US1] Implement `apps/api/src/pipeline/chunk.ts` — for now a pass-through (`return [text]`) because Sonnet 4.6 context window suffices for 10-page statements; export the function so the orchestrator can call it without conditionals (matches `plan.md` data flow)
-- [ ] T062 [US1] Implement `apps/api/src/pipeline/llm-client.ts` real Anthropic body per `contracts/prompt-contract.md`: load the three prompt files, build `messages`, call `client.messages.create` with forced tool-use against the JSON Schema imported from `specs/001-pdf-statement-extractor/contracts/extract-result.schema.json`; return `tool_use.input` as `unknown`; map 5xx/429/timeout/abort to `LlmUnavailableError`, malformed tool use to `ExtractionFailedError`
-- [ ] T063 [US1] Implement `apps/api/src/pipeline/extract.ts` orchestrator — sequence: `preprocess → chunk → llm-client.extract → Zod parse → placeholder-reconcile → enrich metadata`. On Zod failure, retry the LLM call **once** with the corrective `user` turn from `contracts/prompt-contract.md`; on second failure throw `ExtractionFailedError`. Sets `extraction.{model, prompt_version, duration_ms, warnings}`. Reconciliation is a stub here: copies `expected_ending = ending_balance`, `delta = 0`, `ok = true`. (Real reconciliation lands in US2.)
+- [ ] T062 [US1] Implement `apps/api/src/pipeline/llm-client.ts` real Anthropic body per `contracts/prompt-contract.md`: load the three prompt files, build `messages`, call `client.messages.create` with forced tool-use against the JSON Schema imported from `specs/001-pdf-statement-extractor/contracts/llm-tool-input.schema.json` (the LLM-input variant, which omits `summary.reconciliation`); return `tool_use.input` as `unknown`; map 5xx/429/timeout/abort to `LlmUnavailableError`, malformed tool use to `ExtractionFailedError`
+- [ ] T063 [US1] Implement `apps/api/src/pipeline/extract.ts` orchestrator — sequence: `preprocess → chunk → llm-client.extract → Zod parse against LlmExtractionInputSchema → enrich (server-set model/prompt_version/duration_ms; append warnings from LLM input) → placeholder-reconcile → validate full result against ExtractResultSchema`. On Zod failure, retry the LLM call **once** with the corrective `user` turn from `contracts/prompt-contract.md`; on second failure throw `ExtractionFailedError`. Reconciliation is a stub here: copies `expected_ending = ending_balance`, `delta = 0`, `ok = true`. (Real reconciliation lands in US2.)
 - [ ] T064 [US1] Implement `apps/api/src/routes/extract.ts` — `POST /api/extract` handler: parse multipart (Hono built-in), validate sizes & magic bytes (raise `BadFileError → BAD_FILE` SSE), set `text/event-stream` headers, instantiate `stage-emitter`, call orchestrator, emit `stage` events at each boundary, then `result` (or `error`); honour `req.signal` for cancellation
 - [ ] T065 [US1] Wire `extract` route in `apps/api/src/index.ts`; ensure `/api/health` already works (set in T034)
 - [ ] T066 [US1] Implement `apps/web/src/features/extraction/api/useExtract.ts` — TanStack Query `useMutation` that calls `client.postExtract(formData)` and yields the SSE stream into a callback (`onStage`, `onResult`, `onError`); returns `mutate(file, ocr?)`
@@ -171,16 +175,21 @@ All paths below are relative to the repo root.
 
 ## Phase 5: User Story 3 — Cross-bank generalisation (Priority: P2)
 
-**Goal**: Demonstrate that adding a new bank requires **no code changes** — only an additional prompt example file plus a fixture and an integration test. This phase exists primarily to prove the constraint and to add a second fixture so that CI catches regressions to generalisation.
+**Goal**: Demonstrate that adding a new bank requires **no code changes** — only an additional prompt example file plus a fixture and an integration test. This phase exists primarily to prove the constraint and to add **two** unseen-bank fixtures (per spec §AC-2 / §SC-002 / §AC-5) so that CI catches regressions to generalisation and the README accuracy table covers three banks.
 
-**Independent Test**: Per spec §AC-2: process an unseen-bank fixture; ≥ 90 % of summary fields match the human-prepared reference; reconciliation passes (or correctly reports a delta).
+**Tasks**: T085–T092 (8 main tasks) + T113, T114, T115 (3 added during post-analyze remediation for the second unseen bank)
+
+**Independent Test**: Per spec §AC-2: process **both** unseen-bank fixtures; ≥ 90 % of summary fields match the human-prepared references; reconciliation passes (or correctly reports a delta) for each.
 
 ### Tests for User Story 3 (REQUIRED)
 
 - [ ] T085 [P] [US3] Add `apps/api/tests/fixtures/unseen-bank-1.pdf` and (optional) `apps/api/tests/fixtures/unseen-bank-1.ocr.txt` (provided assets)
 - [ ] T086 [P] [US3] Add `apps/api/tests/fixtures/unseen-bank-1.expected.json` — human-curated reference for the second bank
 - [ ] T087 [P] [US3] Add `apps/api/tests/fixtures/llm-responses/unseen-bank-1.tool-input.json` — recorded Anthropic tool-use input for this fixture
-- [ ] T088 [P] [US3] Add `apps/api/tests/integration/extract-unseen-bank.test.ts` — runs the pipeline against the unseen bank with the fake LLM; asserts ≥ 90 % field-by-field match against the reference summary and correct reconciliation behaviour
+- [ ] T113 [P] [US3] Add `apps/api/tests/fixtures/unseen-bank-2.pdf` and (optional) `apps/api/tests/fixtures/unseen-bank-2.ocr.txt` (provided assets — second unseen bank required by spec §AC-2 / §SC-002 / §AC-5)
+- [ ] T114 [P] [US3] Add `apps/api/tests/fixtures/unseen-bank-2.expected.json` — human-curated reference for the third bank in the test corpus
+- [ ] T115 [P] [US3] Add `apps/api/tests/fixtures/llm-responses/unseen-bank-2.tool-input.json` — recorded Anthropic tool-use input for this fixture
+- [ ] T088 [P] [US3] Add `apps/api/tests/integration/extract-unseen-bank.test.ts` — runs the pipeline against **both** unseen-bank-1 and unseen-bank-2 (parameterised); asserts ≥ 90 % field-by-field match against the reference summary and correct reconciliation behaviour for each
 
 ### Implementation for User Story 3
 
@@ -222,12 +231,15 @@ All paths below are relative to the repo root.
 
 **Purpose**: Wrap-up items that affect multiple stories and the demo deliverables.
 
+**Tasks**: T102–T110 (9 main tasks) + T117 (latency-budget tripwire added during post-analyze remediation)
+
 - [ ] T102 Create `.github/workflows/ci.yml` running `pnpm install --frozen-lockfile` then `turbo run lint typecheck test build` and `pnpm check:schema`; cache `~/.local/share/pnpm/store` and `.turbo` keyed on the lockfile hash; fail the build if the frontend gzipped initial bundle exceeds 250 KB (NFR-3, T041)
 - [ ] T103 Add `.github/workflows/e2e.yml` — separate job running `pnpm build` + `pnpm test:e2e`; uploads `playwright-report/` on failure
-- [ ] T104 Update repo-root `README.md` per spec §AC-5: replace the current placeholder with: architecture diagram (text) lifted from `plan.md`, run commands from `quickstart.md`, self-reported accuracy table (Ixonia + unseen-bank-1 + a third bank), and a "Known weaknesses" section that explicitly lists deferred items (no rate limiting per R-9, no per-row running balance per R-5, no multi-period support per spec, etc.)
+- [ ] T104 Update repo-root `README.md` per spec §AC-5: replace the current placeholder with: architecture diagram (text) lifted from `plan.md`, run commands from `quickstart.md`, self-reported accuracy table covering **all three banks** (Ixonia + unseen-bank-1 + unseen-bank-2), and a "Known weaknesses" section that explicitly lists deferred items (no rate limiting per R-9, no per-row running balance per R-5, no multi-period support per spec, etc.)
 - [ ] T105 [P] Add a `docs/demo-script.md` 30-minute walkthrough per constitution §VI (Ixonia happy path → mismatch case → unseen-bank generalisation → error handling)
 - [ ] T106 [P] Add `apps/api/src/utils/perf.ts` helper to measure stage durations and log them at info level; ensure the `extraction.duration_ms` value is end-to-end and matches the wall-clock budget in NFR-1
-- [ ] T107 Open a constitution amendment PR per `research.md` R-6: PATCH bump `v1.0.0 → v1.0.1`, soften the `deposit`/`withdrawal` XOR refinement in §IV `TransactionSchema`, document the ambiguous-row warning convention; update `Sync Impact Report` accordingly
+- [ ] T117 [P] Add `apps/api/tests/integration/latency-budget.test.ts` — with the deterministic fake `LlmClient` returning the Ixonia recorded response, run the orchestrator end-to-end and assert wall-clock duration is below a generous synthetic budget (≤ 500 ms). Acts as a CI tripwire for accidental quadratic regressions in PDF parsing / Zod validation; **not** a substitute for the real-LLM SC-004 measurement (still tracked manually in T108)
+- [ ] T107 Verify that `.specify/memory/constitution.md` is at version `1.0.1` (the §IV `TransactionSchema` PATCH that legalises the relaxed Zod schema landed during the post-`/speckit-analyze` remediation, before any implementation began); fail CI if the version line drops back to `1.0.0`
 - [ ] T108 [P] Run a manual `pnpm preview` smoke against a real Anthropic key and confirm SC-001 / SC-003 / SC-005 hold; record results in `README.md` accuracy table (T104)
 - [ ] T109 [P] Verify `quickstart.md` is accurate end-to-end by following it from a fresh clone on a clean machine; fix any drift
 - [ ] T110 Final lint/typecheck/test pass on the merge-target branch and ensure `pnpm check:schema` is clean

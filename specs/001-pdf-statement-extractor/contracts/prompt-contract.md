@@ -96,13 +96,54 @@ A new bank is added by writing a third example file and bumping `extraction.md`
 
 ## Schema source
 
-The JSON Schema passed as `tools[0].input_schema` is **generated** from the Zod
-schema in `packages/contracts/src/schemas.ts` via `zod-to-json-schema`. A pnpm script
-(`pnpm -F @app/contracts run gen-schema`) writes the result to
-`specs/001-pdf-statement-extractor/contracts/extract-result.schema.json`. CI runs the
-generator and fails if the committed file diverges from the regenerated one. This
-guarantees the LLM, the runtime validator, and the documentation describe the same
-shape.
+There are **two** JSON Schemas, both generated from the same Zod source of truth in
+`packages/contracts/src/schemas.ts`:
+
+- **`extract-result.schema.json`** — the **output contract**. Used by:
+  - the SSE `result` event payload (consumed by the SPA),
+  - the runtime validator that wraps the final pipeline output,
+  - `data-model.md` examples and documentation.
+  In this schema `summary.reconciliation` is **required**, because the server fills
+  it deterministically before emitting the `result` event.
+
+- **`llm-tool-input.schema.json`** — the **LLM input contract**. This is what is
+  passed as `tools[0].input_schema` in the Anthropic call. It is derived from the
+  Zod source by **omitting `summary.reconciliation` entirely**, so the LLM never
+  emits — and never has to invent — values that the server is about to overwrite.
+
+Both schemas are produced by the same `pnpm -F @app/contracts run gen-schema` script
+and committed under `specs/001-pdf-statement-extractor/contracts/`. CI runs the
+generator and fails if either committed file diverges from the regenerated output.
+This guarantees the LLM, the runtime validator, and the documentation describe
+mutually consistent shapes.
+
+### Why two schemas
+
+Forcing the LLM to emit a `reconciliation` placeholder that the server immediately
+discards is a footgun: it muddies the prompt ("emit these three fields but they
+don't matter"), wastes tokens, and risks the model paying attention to incorrect
+arithmetic instead of focusing on the source-grounded transaction extraction. Taking
+the field out of the input schema entirely eliminates the temptation and keeps the
+contract honest: the model is responsible for **observations**; the server is
+responsible for **derivations**.
+
+### Server-side handling
+
+The pipeline (`apps/api/src/pipeline/extract.ts`) parses the LLM tool input through
+the **LLM input schema**, then constructs the full `ExtractResult` by:
+
+1. Copying `account`, `summary` (without `reconciliation`), `transactions` from the
+   LLM input.
+2. Running the deterministic reconciler over `summary` + `transactions` and
+   attaching the resulting `Reconciliation` object to `summary.reconciliation`.
+3. Setting `extraction.{model, prompt_version, duration_ms, warnings}`.
+4. Validating the assembled value through the **output schema**
+   (`ExtractResultSchema`) before emitting the SSE `result` event.
+
+If the LLM nonetheless emits a stray `reconciliation` field (some models do despite
+the schema), it is **silently dropped** by the LLM input schema's
+`additionalProperties: false` — no warning is necessary because the contract clearly
+defines the boundary.
 
 ## Retry policy
 

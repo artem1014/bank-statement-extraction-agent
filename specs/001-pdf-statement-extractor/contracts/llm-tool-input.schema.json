@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/artem1014/bank-statement-extraction-agent/specs/001-pdf-statement-extractor/contracts/llm-tool-input.schema.json",
+  "title": "LlmExtractionInput",
+  "description": "Input shape for the Anthropic `submit_extraction` tool. Identical to ExtractResult except that `summary.reconciliation` is omitted: the LLM is responsible for observations (account, summary aggregates, transactions, source spans), while the server-side pipeline computes reconciliation deterministically and assembles the final ExtractResult. Generated from packages/contracts/src/schemas.ts via zod-to-json-schema; do not edit by hand.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["account", "summary", "transactions", "extraction"],
+  "properties": {
+    "account": { "$ref": "#/$defs/Account" },
+    "summary": { "$ref": "#/$defs/LlmSummary" },
+    "transactions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Transaction" }
+    },
+    "extraction": { "$ref": "#/$defs/LlmExtractionMetadata" }
+  },
+  "$defs": {
+    "Account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bank", "account_last4", "period"],
+      "properties": {
+        "bank": { "type": ["string", "null"] },
+        "account_last4": {
+          "anyOf": [
+            { "type": "string", "pattern": "^\\d{4}$" },
+            { "type": "null" }
+          ]
+        },
+        "period": { "$ref": "#/$defs/Period" }
+      }
+    },
+    "Period": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "end":   { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+      }
+    },
+    "LlmSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "beginning_balance",
+        "ending_balance",
+        "deposits_total",
+        "deposits_count",
+        "withdrawals_total",
+        "withdrawals_count"
+      ],
+      "description": "Same as the canonical Summary but WITHOUT `reconciliation`. The server attaches Reconciliation deterministically after parsing the LLM tool input.",
+      "properties": {
+        "beginning_balance": { "type": "number" },
+        "ending_balance":    { "type": "number" },
+        "deposits_total":    { "type": "number", "minimum": 0 },
+        "deposits_count":    { "type": "integer", "minimum": 0 },
+        "withdrawals_total": { "type": "number", "minimum": 0 },
+        "withdrawals_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "description", "deposit", "withdrawal", "source_span"],
+      "description": "The Zod schema permits all three combinations of (deposit, withdrawal): deposit-only, withdrawal-only, both-null. The both-null case is legal only when extraction.warnings[] contains a matching 'ambiguous-direction:' entry (enforced server-side, not in JSON Schema).",
+      "properties": {
+        "date":        { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "description": { "type": "string", "minLength": 1 },
+        "deposit":     { "type": ["number", "null"], "minimum": 0 },
+        "withdrawal":  { "type": ["number", "null"], "minimum": 0 },
+        "source_span": { "$ref": "#/$defs/SourceSpan" }
+      }
+    },
+    "SourceSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page", "char_start", "char_end"],
+      "properties": {
+        "page":       { "anyOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "char_start": { "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "char_end":   { "anyOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] }
+      }
+    },
+    "LlmExtractionMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["warnings"],
+      "description": "The LLM is responsible only for emitting non-fatal warnings it observed during extraction (e.g. ambiguous rows, unreadable values). The server fills in `model`, `prompt_version`, and `duration_ms` after the call returns.",
+      "properties": {
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

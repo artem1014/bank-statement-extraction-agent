@@ -1,36 +1,48 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: 0.0.0 (template) → 1.0.0
-Bump rationale: MAJOR — first ratification of the project constitution; replaces all
-placeholder tokens with concrete, binding rules.
+Version change: 1.0.0 → 1.0.1
+Bump rationale: PATCH — clarification of §IV `TransactionSchema` to permit ambiguous
+rows (deposit AND withdrawal both null) when accompanied by an explicit warning. No
+core principle is added, removed, or weakened: the spirit of §I "document-grounded
+only" is preserved — ambiguous rows are surfaced honestly rather than guessed.
 
-Modified principles:
-  - [PRINCIPLE_1_NAME] → I. Document-grounded only (no hallucinations)
-  - [PRINCIPLE_2_NAME] → II. Reconciliation is non-negotiable
-  - [PRINCIPLE_3_NAME] → III. Generalization via prompts & schema, not code
-  - [PRINCIPLE_4_NAME] → IV. Strict typing end-to-end
-  - [PRINCIPLE_5_NAME] → V. Deterministic where possible
+Modified principles (this revision):
+  - §IV Data Contract — `TransactionSchema` no longer carries the exclusive-or Zod
+    `.refine()` between `deposit` and `withdrawal`. Instead, the schema permits all
+    three combinations (deposit-only, withdrawal-only, both-null); the both-null case
+    is legal only when `extraction.warnings[]` contains an entry referencing the
+    transaction's `source_span` with the `ambiguous-direction:` prefix. This
+    business-rule check is enforced in `apps/api/src/pipeline/extract.ts`, not in
+    Zod, because Zod has no access to the warnings list at the time the schema
+    validates a single transaction.
 
-Added sections:
-  - II. Architecture (data flow + backend/frontend/monorepo layout)
-  - III. Technology Stack (backend, frontend, infra)
-  - IV. Data Contract (canonical Zod schema)
-  - V. Development Rules (code quality, testing, prompts, errors, security, perf budgets)
-  - VI. Acceptance Criteria
-  - VII. Out of Scope
-  - VIII. Amendment Process (governance)
-
+Added sections: none
 Removed sections: none
 
 Templates requiring updates:
-  - ✅ .specify/templates/plan-template.md — generic "Constitution Check" gate;
-       no edits needed (will pick up the new principles at runtime).
-  - ✅ .specify/templates/spec-template.md — domain-agnostic; no edits needed.
-  - ✅ .specify/templates/tasks-template.md — domain-agnostic; no edits needed.
-  - ⚠ README.md — pending update with architecture diagram, run commands and
-       known weaknesses (covered by Acceptance Criteria §VI; to be completed
-       during /speckit-implement).
+  - ✅ .specify/templates/plan-template.md — no edits required.
+  - ✅ .specify/templates/spec-template.md — no edits required.
+  - ✅ .specify/templates/tasks-template.md — no edits required.
+  - ✅ specs/001-pdf-statement-extractor/data-model.md — already reflects the
+       relaxed schema (this amendment legitimises that design).
+  - ✅ specs/001-pdf-statement-extractor/research.md R-6 — already documents the
+       rationale.
+
+Prior revision (1.0.0 → kept for traceability):
+  Version change: 0.0.0 (template) → 1.0.0
+  Bump rationale: MAJOR — first ratification of the project constitution; replaced
+  all placeholder tokens with concrete, binding rules.
+  Modified principles:
+    - [PRINCIPLE_1_NAME] → I. Document-grounded only (no hallucinations)
+    - [PRINCIPLE_2_NAME] → II. Reconciliation is non-negotiable
+    - [PRINCIPLE_3_NAME] → III. Generalization via prompts & schema, not code
+    - [PRINCIPLE_4_NAME] → IV. Strict typing end-to-end
+    - [PRINCIPLE_5_NAME] → V. Deterministic where possible
+  Added sections:
+    - II. Architecture, III. Technology Stack, IV. Data Contract,
+      V. Development Rules, VI. Acceptance Criteria, VII. Out of Scope,
+      VIII. Amendment Process (governance)
 
 Deferred items: none.
 -->
@@ -311,10 +323,13 @@ export const TransactionSchema = z.object({
     char_start: z.number().int().nonnegative().nullable(),
     char_end:   z.number().int().nonnegative().nullable(),
   }),
-}).refine(
-  t => (t.deposit === null) !== (t.withdrawal === null),
-  { message: 'Транзакция должна быть либо депозитом, либо снятием, не оба и не ничего' }
-);
+});
+// Direction rule (enforced in pipeline/extract.ts, not in Zod):
+//   At least one of { deposit, withdrawal } MUST be non-null UNLESS the row is
+//   flagged ambiguous. An ambiguous row has both fields null AND there MUST exist
+//   an entry in `extraction.warnings[]` of the form
+//   `ambiguous-direction: <date> '<description>' @ <source_span>` referencing it.
+//   See `specs/001-pdf-statement-extractor/research.md` R-6 for rationale.
 
 export const ExtractResultSchema = z.object({
   account: AccountSchema,
@@ -440,4 +455,4 @@ export type ExtractResult = z.infer<typeof ExtractResultSchema>;
 (`/speckit-plan`) запускает Constitution Check как gate перед Phase 0 и повторно после
 Phase 1.
 
-**Version**: 1.0.0 | **Ratified**: 2026-05-17 | **Last Amended**: 2026-05-17
+**Version**: 1.0.1 | **Ratified**: 2026-05-17 | **Last Amended**: 2026-05-17
