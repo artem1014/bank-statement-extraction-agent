@@ -32,6 +32,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+.turbo/
+dist/
+build/
+coverage/
+playwright-report/
+test-results/
+.cache/
+.parcel-cache/
+
 .idea/
 .vscode/
 *.swp
@@ -44,9 +53,11 @@ temp/
 
 data/raw/
 data/processed/
-*.pdf
 *.csv
 *.xlsx
 *.xls
-!examples/*.pdf
 !examples/*.csv
+# PDFs are allowed in apps/api/tests/fixtures/ — see fixture tasks T053/T085/T113.
+# Reject only top-level / data PDFs.
+/*.pdf
+data/**/*.pdf

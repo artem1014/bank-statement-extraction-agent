@@ -30,20 +30,20 @@ All paths below are relative to the repo root.
 
 **Purpose**: Initialise the monorepo, tooling, and skeleton package files. No business logic in this phase.
 
-- [ ] T001 Create monorepo directory structure (`apps/api/{src,tests}`, `apps/web/{src,tests,public}`, `packages/contracts/src`, `packages/tsconfig`, `.github/workflows/`) per `plan.md` "Project Structure" — placeholder `.gitkeep` files only
-- [ ] T002 Create root `package.json` with workspace scripts (`dev`, `build`, `lint`, `typecheck`, `test`, `test:e2e`) wired to `turbo run <task>`
-- [ ] T003 Create `pnpm-workspace.yaml` declaring `apps/*` and `packages/*`
-- [ ] T004 Create `turbo.json` with task pipeline: `build` (depends on `^build`, outputs `dist/**`), `lint`, `typecheck`, `test`, `dev` (no cache, persistent)
-- [ ] T005 [P] Create `packages/tsconfig/base.json` with `strict: true`, `noUncheckedIndexedAccess: true`, `target: ES2022`, `module: NodeNext`
-- [ ] T006 [P] Create `packages/tsconfig/node.json` extending `base.json` for Node 20 (`lib: ["ES2022"]`, `types: ["node"]`)
-- [ ] T007 [P] Create `packages/tsconfig/react.json` extending `base.json` for the SPA (`jsx: react-jsx`, `lib: ["ES2022","DOM","DOM.Iterable"]`)
-- [ ] T008 [P] Create `packages/tsconfig/package.json` (private, version 0.0.0)
-- [ ] T009 [P] Create `biome.json` at repo root with TS+TSX+JSON+Markdown formatting and lint rules; align with constitution §V code-quality requirements
-- [ ] T010 [P] Create `.env.example` at repo root listing `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `PORT`, `CORS_ORIGIN`, `LOG_LEVEL`, `MAX_PDF_BYTES`, `MAX_OCR_BYTES`
-- [ ] T011 [P] Configure Husky (`.husky/pre-commit`) to run `pnpm exec lint-staged` and `pnpm typecheck`
-- [ ] T012 [P] Add `lint-staged` config in root `package.json` running `biome check --write` on staged `*.{ts,tsx,json,md}`
-- [ ] T013 [P] Update root `.gitignore` to cover `dist/`, `.turbo/`, `coverage/`, `playwright-report/`, `node_modules/`, `apps/api/tests/fixtures/*.pdf` already partially listed — verify and amend
-- [ ] T014 [P] Install root devDependencies: `pnpm add -Dw turbo @biomejs/biome husky lint-staged typescript@^5.4`
+- [X] T001 Create monorepo directory structure (`apps/api/{src,tests}`, `apps/web/{src,tests,public}`, `packages/contracts/src`, `packages/tsconfig`, `.github/workflows/`) per `plan.md` "Project Structure" — placeholder `.gitkeep` files only
+- [X] T002 Create root `package.json` with workspace scripts (`dev`, `build`, `lint`, `typecheck`, `test`, `test:e2e`) wired to `turbo run <task>`
+- [X] T003 Create `pnpm-workspace.yaml` declaring `apps/*` and `packages/*`
+- [X] T004 Create `turbo.json` with task pipeline: `build` (depends on `^build`, outputs `dist/**`), `lint`, `typecheck`, `test`, `dev` (no cache, persistent)
+- [X] T005 [P] Create `packages/tsconfig/base.json` with `strict: true`, `noUncheckedIndexedAccess: true`, `target: ES2022`, `module: NodeNext`
+- [X] T006 [P] Create `packages/tsconfig/node.json` extending `base.json` for Node 20 (`lib: ["ES2022"]`, `types: ["node"]`)
+- [X] T007 [P] Create `packages/tsconfig/react.json` extending `base.json` for the SPA (`jsx: react-jsx`, `lib: ["ES2022","DOM","DOM.Iterable"]`)
+- [X] T008 [P] Create `packages/tsconfig/package.json` (private, version 0.0.0)
+- [X] T009 [P] Create `biome.json` at repo root with TS+TSX+JSON+Markdown formatting and lint rules; align with constitution §V code-quality requirements
+- [X] T010 [P] Create `.env.example` at repo root listing `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `PORT`, `CORS_ORIGIN`, `LOG_LEVEL`, `MAX_PDF_BYTES`, `MAX_OCR_BYTES`
+- [X] T011 [P] Configure Husky (`.husky/pre-commit`) to run `pnpm exec lint-staged` and `pnpm typecheck`
+- [X] T012 [P] Add `lint-staged` config in root `package.json` running `biome check --write` on staged `*.{ts,tsx,json,md}`
+- [X] T013 [P] Update root `.gitignore` to cover `dist/`, `.turbo/`, `coverage/`, `playwright-report/`, `node_modules/`, `apps/api/tests/fixtures/*.pdf` already partially listed — verify and amend
+- [X] T014 [P] Install root devDependencies: `pnpm add -Dw turbo @biomejs/biome husky lint-staged typescript@^5.4`
 
 ---
 
@@ -53,51 +53,51 @@ All paths below are relative to the repo root.
 
 ### `packages/contracts` — single source of truth
 
-- [ ] T015 Initialise `packages/contracts/package.json` with name `@app/contracts`, `type: module`, build script (`tsc -p .`), `gen-schema` script, deps: `zod@^3.23`, devDeps: `zod-to-json-schema@^3.23`, `typescript@^5.4`
-- [ ] T016 Create `packages/contracts/tsconfig.json` extending `packages/tsconfig/node.json`, output to `dist/`
-- [ ] T017 [P] Implement `packages/contracts/src/schemas.ts` — Zod schemas for `AccountSchema`, `PeriodSchema`, `SummarySchema`, `ReconciliationSchema`, `SourceSpanSchema`, `TransactionSchema`, `ExtractionMetadataSchema`, `ExtractResultSchema` per `data-model.md` (no XOR refinement on `TransactionSchema` — direction rule is enforced in the pipeline per constitution v1.0.1 §IV). Also export a derived `LlmExtractionInputSchema` via `ExtractResultSchema.omit({...})` such that `summary.reconciliation` is removed and `extraction` is reduced to `{ warnings }`; this is the runtime validator for the Anthropic tool-use response (see `contracts/prompt-contract.md` "Schema source")
-- [ ] T018 [P] Implement `packages/contracts/src/errors.ts` exporting the `ErrorCode` union (`'BAD_FILE'|'EXTRACTION_FAILED'|'LLM_UNAVAILABLE'`) and a Zod schema for the SSE/HTTP error body
-- [ ] T019 [P] Implement `packages/contracts/src/sse.ts` exporting `StageName`, `StageStatus`, and Zod schemas for `StageEventDataSchema`, `ResultEventDataSchema`, `ErrorEventDataSchema`
-- [ ] T020 Implement `packages/contracts/src/index.ts` re-exporting all public types and schemas
-- [ ] T021 Implement `packages/contracts/scripts/gen-schema.ts` that converts **both** `ExtractResultSchema` and `LlmExtractionInputSchema` to JSON Schema Draft 2020-12 (via `zod-to-json-schema`) and writes `specs/001-pdf-statement-extractor/contracts/extract-result.schema.json` and `specs/001-pdf-statement-extractor/contracts/llm-tool-input.schema.json` respectively; wire `pnpm -F @app/contracts run gen-schema`
-- [ ] T022 [P] Add `packages/contracts/tests/schemas.test.ts` — round-trip tests: parse `data-model.md` Ixonia example, assert valid; mutate fields to invalid values, assert each produces a typed Zod issue
-- [ ] T023 [P] Add `packages/contracts/tests/schema-snapshot.test.ts` — runs `gen-schema` script and asserts that both committed JSON Schemas (`extract-result.schema.json` and `llm-tool-input.schema.json`) are byte-equal to the generated output (drift detector)
+- [X] T015 Initialise `packages/contracts/package.json` with name `@app/contracts`, `type: module`, build script (`tsc -p .`), `gen-schema` script, deps: `zod@^3.23`, devDeps: `zod-to-json-schema@^3.23`, `typescript@^5.4`
+- [X] T016 Create `packages/contracts/tsconfig.json` extending `packages/tsconfig/node.json`, output to `dist/`
+- [X] T017 [P] Implement `packages/contracts/src/schemas.ts` — Zod schemas for `AccountSchema`, `PeriodSchema`, `SummarySchema`, `ReconciliationSchema`, `SourceSpanSchema`, `TransactionSchema`, `ExtractionMetadataSchema`, `ExtractResultSchema` per `data-model.md` (no XOR refinement on `TransactionSchema` — direction rule is enforced in the pipeline per constitution v1.0.1 §IV). Also export a derived `LlmExtractionInputSchema` via `ExtractResultSchema.omit({...})` such that `summary.reconciliation` is removed and `extraction` is reduced to `{ warnings }`; this is the runtime validator for the Anthropic tool-use response (see `contracts/prompt-contract.md` "Schema source")
+- [X] T018 [P] Implement `packages/contracts/src/errors.ts` exporting the `ErrorCode` union (`'BAD_FILE'|'EXTRACTION_FAILED'|'LLM_UNAVAILABLE'`) and a Zod schema for the SSE/HTTP error body
+- [X] T019 [P] Implement `packages/contracts/src/sse.ts` exporting `StageName`, `StageStatus`, and Zod schemas for `StageEventDataSchema`, `ResultEventDataSchema`, `ErrorEventDataSchema`
+- [X] T020 Implement `packages/contracts/src/index.ts` re-exporting all public types and schemas
+- [X] T021 Implement `packages/contracts/scripts/gen-schema.ts` that converts **both** `ExtractResultSchema` and `LlmExtractionInputSchema` to JSON Schema Draft 2020-12 (via `zod-to-json-schema`) and writes `specs/001-pdf-statement-extractor/contracts/extract-result.schema.json` and `specs/001-pdf-statement-extractor/contracts/llm-tool-input.schema.json` respectively; wire `pnpm -F @app/contracts run gen-schema`
+- [X] T022 [P] Add `packages/contracts/tests/schemas.test.ts` — round-trip tests: parse `data-model.md` Ixonia example, assert valid; mutate fields to invalid values, assert each produces a typed Zod issue
+- [X] T023 [P] Add `packages/contracts/tests/schema-snapshot.test.ts` — runs `gen-schema` script and asserts that both committed JSON Schemas (`extract-result.schema.json` and `llm-tool-input.schema.json`) are byte-equal to the generated output (drift detector)
 
 ### `apps/api` — backend skeleton
 
-- [ ] T024 Initialise `apps/api/package.json` with name `@app/api`, scripts (`dev: tsx watch src/index.ts`, `build: tsc -p .`, `start: node dist/index.js`, `test: vitest run`, `typecheck: tsc --noEmit`), deps: `hono@^4`, `@hono/node-server`, `@anthropic-ai/sdk@^0.27`, `unpdf@^0.12`, `zod@^3.23`, `decimal.js@^10`, `pino@^9`, `pino-http@^10`, `@app/contracts: workspace:*`, devDeps: `tsx`, `vitest@^2`, `@types/node`
-- [ ] T025 Create `apps/api/tsconfig.json` extending `packages/tsconfig/node.json`, references `packages/contracts`
-- [ ] T026 Implement `apps/api/src/config.ts` — Zod-validated env (per `research.md` R-16); exported typed `config` object; throws at boot on missing/invalid vars
-- [ ] T027 [P] Implement `apps/api/src/utils/logger.ts` — `pino` instance with redact paths (`req.headers.authorization`, env keys, `req.body`); default level from `config.LOG_LEVEL`
-- [ ] T028 [P] Implement `apps/api/src/utils/money.ts` — `decimal.js` helpers: `toDecimal(string|number)`, `sumDecimals(values: Decimal[])`, `withinTolerance(a, b, eps='0.01')`; set `Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN })` once
-- [ ] T029 [P] Implement `apps/api/src/utils/mime.ts` — magic-byte sniffing: `isPdfBuffer(buf)` checks leading `%PDF-`; `isUtf8Text(buf)` heuristic; export `MimeMismatchError`
-- [ ] T030 [P] Implement `apps/api/src/domain/errors.ts` — typed exceptions `BadFileError`, `ExtractionFailedError`, `LlmUnavailableError`; each carries the matching `ErrorCode` and a user-facing message
-- [ ] T031 [P] Implement `apps/api/src/domain/types.ts` — re-export contract types from `@app/contracts` for ergonomic internal imports
-- [ ] T032 Implement `apps/api/src/pipeline/llm-client.ts` — interface `LlmClient { extract(text: string, opts: ExtractOptions): Promise<unknown> }`; expose factory `createAnthropicClient(config)`; **do not implement the body yet** — leave a `throw new Error('not yet implemented')` stub. (Implementation is in Phase 3.)
-- [ ] T033 Implement `apps/api/src/pipeline/stage-emitter.ts` — helper class that encapsulates SSE writes (`emitStage`, `emitResult`, `emitError`) given a `Response` writer; serialises per the grammar in `contracts/sse-events.md`
-- [ ] T034 Implement `apps/api/src/index.ts` — Hono app bootstrap: load `config`, attach `pino-http`, register CORS middleware limited to `config.CORS_ORIGIN`, mount `/api/health` route inline returning `{ ok: true, version }`
-- [ ] T035 [P] Create `apps/api/src/prompts/system.md` with frontmatter `prompt_version: v1.0.0, purpose: system` and the 7 invariants from `contracts/prompt-contract.md`
-- [ ] T036 [P] Create `apps/api/src/prompts/extraction.md` with frontmatter `prompt_version: v1.0.0, purpose: extraction` and bank-agnostic field-by-field guidance per `contracts/prompt-contract.md`
-- [ ] T037 [P] Create `apps/api/src/prompts/examples/ixonia.md` — compact few-shot (header + 2-3 representative transactions) anchored to the Ixonia fixture
-- [ ] T038 Add `apps/api/Dockerfile` — multi-stage build (deps → build → runtime); runtime image is `node:20-alpine`; non-root user; exposes `${PORT:-8080}`
+- [X] T024 Initialise `apps/api/package.json` with name `@app/api`, scripts (`dev: tsx watch src/index.ts`, `build: tsc -p .`, `start: node dist/index.js`, `test: vitest run`, `typecheck: tsc --noEmit`), deps: `hono@^4`, `@hono/node-server`, `@anthropic-ai/sdk@^0.27`, `unpdf@^0.12`, `zod@^3.23`, `decimal.js@^10`, `pino@^9`, `pino-http@^10`, `@app/contracts: workspace:*`, devDeps: `tsx`, `vitest@^2`, `@types/node`
+- [X] T025 Create `apps/api/tsconfig.json` extending `packages/tsconfig/node.json`, references `packages/contracts`
+- [X] T026 Implement `apps/api/src/config.ts` — Zod-validated env (per `research.md` R-16); exported typed `config` object; throws at boot on missing/invalid vars
+- [X] T027 [P] Implement `apps/api/src/utils/logger.ts` — `pino` instance with redact paths (`req.headers.authorization`, env keys, `req.body`); default level from `config.LOG_LEVEL`
+- [X] T028 [P] Implement `apps/api/src/utils/money.ts` — `decimal.js` helpers: `toDecimal(string|number)`, `sumDecimals(values: Decimal[])`, `withinTolerance(a, b, eps='0.01')`; set `Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_EVEN })` once
+- [X] T029 [P] Implement `apps/api/src/utils/mime.ts` — magic-byte sniffing: `isPdfBuffer(buf)` checks leading `%PDF-`; `isUtf8Text(buf)` heuristic; export `MimeMismatchError`
+- [X] T030 [P] Implement `apps/api/src/domain/errors.ts` — typed exceptions `BadFileError`, `ExtractionFailedError`, `LlmUnavailableError`; each carries the matching `ErrorCode` and a user-facing message
+- [X] T031 [P] Implement `apps/api/src/domain/types.ts` — re-export contract types from `@app/contracts` for ergonomic internal imports
+- [X] T032 Implement `apps/api/src/pipeline/llm-client.ts` — interface `LlmClient { extract(text: string, opts: ExtractOptions): Promise<unknown> }`; expose factory `createAnthropicClient(config)`; **do not implement the body yet** — leave a `throw new Error('not yet implemented')` stub. (Implementation is in Phase 3.)
+- [X] T033 Implement `apps/api/src/pipeline/stage-emitter.ts` — helper class that encapsulates SSE writes (`emitStage`, `emitResult`, `emitError`) given a `Response` writer; serialises per the grammar in `contracts/sse-events.md`
+- [X] T034 Implement `apps/api/src/index.ts` — Hono app bootstrap: load `config`, attach `pino-http`, register CORS middleware limited to `config.CORS_ORIGIN`, mount `/api/health` route inline returning `{ ok: true, version }`
+- [X] T035 [P] Create `apps/api/src/prompts/system.md` with frontmatter `prompt_version: v1.0.0, purpose: system` and the 7 invariants from `contracts/prompt-contract.md`
+- [X] T036 [P] Create `apps/api/src/prompts/extraction.md` with frontmatter `prompt_version: v1.0.0, purpose: extraction` and bank-agnostic field-by-field guidance per `contracts/prompt-contract.md`
+- [X] T037 [P] Create `apps/api/src/prompts/examples/ixonia.md` — compact few-shot (header + 2-3 representative transactions) anchored to the Ixonia fixture
+- [X] T038 Add `apps/api/Dockerfile` — multi-stage build (deps → build → runtime); runtime image is `node:20-alpine`; non-root user; exposes `${PORT:-8080}`
 
 ### `apps/web` — frontend skeleton
 
-- [ ] T039 Initialise `apps/web/package.json` with name `@app/web`, scripts (`dev: vite`, `build: tsc -p . && vite build`, `preview: vite preview`, `test: vitest run`, `test:e2e: playwright test`, `typecheck: tsc --noEmit`), deps: `react@^18`, `react-dom@^18`, `@tanstack/react-query@^5`, `@tanstack/react-table@^8`, `react-dropzone@^14`, `lucide-react`, `@radix-ui/react-slot`, `class-variance-authority`, `clsx`, `tailwind-merge`, `@app/contracts: workspace:*`, devDeps: `vite@^5`, `@vitejs/plugin-react`, `tailwindcss@^3`, `postcss`, `autoprefixer`, `vitest@^2`, `@testing-library/react`, `@testing-library/jest-dom`, `@playwright/test@^1.46`, `jsdom`
-- [ ] T040 Create `apps/web/tsconfig.json` extending `packages/tsconfig/react.json`; references `packages/contracts`
-- [ ] T041 Create `apps/web/vite.config.ts` — React plugin, dev-server proxy `/api → http://localhost:8080`, build size check that fails if initial JS chunk > 250 KB gzipped (NFR-3)
-- [ ] T042 [P] Configure Tailwind: `apps/web/tailwind.config.ts`, `postcss.config.cjs`, `src/styles/globals.css` with `@tailwind base/components/utilities`
-- [ ] T043 [P] Initialise shadcn/ui — copy required primitives (`button`, `card`, `badge`, `input`, `table`, `dialog`, `alert`) into `apps/web/src/shared/ui/`
-- [ ] T044 Implement `apps/web/src/main.tsx` (mount with `QueryClientProvider`) and `apps/web/src/App.tsx` (skeleton route shell)
-- [ ] T045 Implement `apps/web/src/shared/api/sse.ts` — minimal SSE parser per `contracts/sse-events.md` "Client parsing"; exports `async function* readSse(res): AsyncGenerator<AnyEvent>` and validates each `data:` payload through `@app/contracts` Zod schemas
-- [ ] T046 [P] Implement `apps/web/src/shared/api/client.ts` — `fetch` wrapper that builds `multipart/form-data`, attaches an `AbortController`, returns the raw `Response` (the SSE generator consumes it)
-- [ ] T047 [P] Implement `apps/web/src/shared/lib/format.ts` — `formatMoney(value, currency='USD')` (thousands separator, 2 dp), `formatDate(iso)` (`Apr 1, 2025`), `formatPeriod(start,end)` (`Apr 1 – Apr 30, 2025`), `maskAccount(last4)` (`••••<last4>`); FR-021
-- [ ] T048 [P] Implement `apps/web/src/shared/lib/download.ts` — `downloadJsonFile(filename, payload)` (Blob + temporary `a` element)
-- [ ] T049 Create `apps/web/playwright.config.ts` — runs against `vite preview` on port 4173, headless Chromium only, retries=1 on CI
+- [X] T039 Initialise `apps/web/package.json` with name `@app/web`, scripts (`dev: vite`, `build: tsc -p . && vite build`, `preview: vite preview`, `test: vitest run`, `test:e2e: playwright test`, `typecheck: tsc --noEmit`), deps: `react@^18`, `react-dom@^18`, `@tanstack/react-query@^5`, `@tanstack/react-table@^8`, `react-dropzone@^14`, `lucide-react`, `@radix-ui/react-slot`, `class-variance-authority`, `clsx`, `tailwind-merge`, `@app/contracts: workspace:*`, devDeps: `vite@^5`, `@vitejs/plugin-react`, `tailwindcss@^3`, `postcss`, `autoprefixer`, `vitest@^2`, `@testing-library/react`, `@testing-library/jest-dom`, `@playwright/test@^1.46`, `jsdom`
+- [X] T040 Create `apps/web/tsconfig.json` extending `packages/tsconfig/react.json`; references `packages/contracts`
+- [X] T041 Create `apps/web/vite.config.ts` — React plugin, dev-server proxy `/api → http://localhost:8080`, build size check that fails if initial JS chunk > 250 KB gzipped (NFR-3)
+- [X] T042 [P] Configure Tailwind: `apps/web/tailwind.config.ts`, `postcss.config.cjs`, `src/styles/globals.css` with `@tailwind base/components/utilities`
+- [X] T043 [P] Initialise shadcn/ui — copy required primitives (`button`, `card`, `badge`, `input`, `table`, `dialog`, `alert`) into `apps/web/src/shared/ui/`
+- [X] T044 Implement `apps/web/src/main.tsx` (mount with `QueryClientProvider`) and `apps/web/src/App.tsx` (skeleton route shell)
+- [X] T045 Implement `apps/web/src/shared/api/sse.ts` — minimal SSE parser per `contracts/sse-events.md` "Client parsing"; exports `async function* readSse(res): AsyncGenerator<AnyEvent>` and validates each `data:` payload through `@app/contracts` Zod schemas
+- [X] T046 [P] Implement `apps/web/src/shared/api/client.ts` — `fetch` wrapper that builds `multipart/form-data`, attaches an `AbortController`, returns the raw `Response` (the SSE generator consumes it)
+- [X] T047 [P] Implement `apps/web/src/shared/lib/format.ts` — `formatMoney(value, currency='USD')` (thousands separator, 2 dp), `formatDate(iso)` (`Apr 1, 2025`), `formatPeriod(start,end)` (`Apr 1 – Apr 30, 2025`), `maskAccount(last4)` (`••••<last4>`); FR-021
+- [X] T048 [P] Implement `apps/web/src/shared/lib/download.ts` — `downloadJsonFile(filename, payload)` (Blob + temporary `a` element)
+- [X] T049 Create `apps/web/playwright.config.ts` — runs against `vite preview` on port 4173, headless Chromium only, retries=1 on CI
 
 ### `packages/contracts` JSON Schema sync gate
 
-- [ ] T050 Add a CI step (in advance, as a script) `packages/contracts/scripts/check-schema.sh` that runs `gen-schema` and `git diff --exit-code` on `specs/001-pdf-statement-extractor/contracts/extract-result.schema.json`; wire via root `pnpm check:schema`
+- [X] T050 Add a CI step (in advance, as a script) `packages/contracts/scripts/check-schema.sh` that runs `gen-schema` and `git diff --exit-code` on `specs/001-pdf-statement-extractor/contracts/extract-result.schema.json`; wire via root `pnpm check:schema`
 
 **Checkpoint**: Foundation ready — user story implementation can now begin. Phase 2 leaves the project in a "everything compiles, nothing extracts" state; `pnpm dev` should start both apps and `GET /api/health` should respond.
 
