@@ -23,6 +23,20 @@ Phase 3 implementation also added two unplanned but necessary modules that aren'
 
 These count as completion of the spirit of T060–T064; their tests are added as `apps/api/tests/unit/{money,reconcile}.test.ts` (20 passing assertions covering money utilities and reconciliation edge cases).
 
+## 2026-05-17 amendment II — indexer hardening, concurrency, HTTP wiring
+
+Three follow-up changes (no constitution bump; all preserve §I principles):
+
+1. **Deterministic OCR-based indexer** (`apps/api/src/pipeline/ocr-indexer.ts`): when the operator supplies an OCR sidecar (RTF/TXT, multipart field `ocr_text` or CLI flag `--ocr`), the period boundaries are parsed from `Beginning Balance as of MM/DD/YYYY` / `Ending Balance as of MM/DD/YYYY` markers and mapped to absolute PDF page ranges via `Page X of Y` cover-page markers. On the Ixonia fixture this finds **exactly 10 periods** (matches the reference table) vs. 12 with the LLM-only indexer, and skips one full Files-API round-trip per chunk (~10s saved per upload).
+2. **LLM indexer post-validation** (`sanitizeIndexedPeriods` in `extract.ts`): when no OCR is supplied, raw markers from the LLM indexer are filtered (drop any period whose `end_date - start_date < 3 days` — those are typically running-header false positives) and adjacent overlapping markers for the same account are merged.
+3. **Transaction-window concurrency** (`apps/api/src/utils/concurrency.ts`): `extractAllTransactionsInWindows` now schedules sub-windows through `mapWithConcurrency(slices, 3, …)`. On the 99-page demo PDF this drops wall-clock from ~27 min → ~10 min.
+
+New tests (added to `apps/api/tests/unit/`): `ocr-indexer.test.ts` (4 assertions — parsing, page mapping, edge drift), `concurrency.test.ts` (5 assertions — order preservation, max-active invariant, error propagation). Total unit-test count is now 29 passing.
+
+HTTP surface wired (T070-ish, was previously stubbed): `POST /api/extract` accepts `multipart/form-data` (`pdf` required, `ocr_text` optional), responds with `text/event-stream` emitting `stage`, `result`, `error` frames per `packages/contracts/src/sse.ts`. Errors map to typed `ErrorBody` (`BAD_FILE` / `EXTRACTION_FAILED` / `LLM_UNAVAILABLE`).
+
+Web UI (T065–T073 spirit): `apps/web/src/App.tsx` now drives a real upload form (drop zone + optional OCR sidecar picker), consumes the SSE stream via `features/extraction/hooks/useExtract.ts`, and renders a `PeriodCard` per `ExtractResult` (collapsible transaction table, balance reconciliation badge, per-period drift detail) plus a single "Download JSON" action that serialises the full `{ periods: ExtractResult[] }` payload.
+
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
 ## Format: `[ID] [P?] [Story] Description`

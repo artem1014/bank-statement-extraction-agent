@@ -363,6 +363,45 @@ v1.0.0).
     deterministic page ranges for the extractor pass, so the extractor never
     has to guess where a period starts or ends.
 
+## R-17b. Deterministic OCR-based indexer (amendment, 2026-05-17 II)
+
+- **Decision**: When the operator supplies an OCR sidecar (Azure Document AI
+  `prebuilt-document` output or any plain text containing
+  `Beginning Balance as of MM/DD/YYYY` / `Ending Balance as of MM/DD/YYYY` markers),
+  the indexer pass is *replaced* by a deterministic regex parser
+  (`apps/api/src/pipeline/ocr-indexer.ts`). Absolute PDF page ranges are recovered
+  by looking up the nearest preceding `Page 1 of N` cover-page header for each
+  Beginning-Balance marker.
+- **Rationale**: On the Ixonia fixture the LLM indexer produced 12 periods (10
+  expected; 2 false positives caused by running-header repetition on
+  cross-month boundary pages). The OCR-based parser produces exactly 10. It also
+  skips one Files-API round-trip per PDF chunk, which is the single biggest
+  fixed cost in the indexer pass.
+- **Fallback**: If no OCR sidecar is provided, the previous LLM indexer is used
+  with a *post-validation* pass (`sanitizeIndexedPeriods`) that drops any period
+  with `end_date - start_date < 3 days` and merges adjacent overlapping markers
+  for the same account.
+- **Why not always require OCR?**: The constitution forbids hard dependencies
+  on third-party document-AI vendors (would couple us to Azure / Textract).
+  OCR sidecar is an *optional accuracy upgrade*, not a requirement.
+
+---
+
+## R-19. Transaction-window concurrency (amendment, 2026-05-17 II)
+
+- **Decision**: Per-period transaction-window calls (the inner loop of
+  `extractAllTransactionsInWindows`) are scheduled through
+  `mapWithConcurrency(slices, 3, …)`.
+- **Rationale**: On the 99-page demo PDF the indexer finds 10 periods with
+  ~5 transaction windows each = ~50 OpenAI calls. Sequentially this is ~25 min
+  (the bulk of the 27-min baseline). At concurrency 3, wall-clock drops to
+  ~10 min, well under OpenAI's per-key TPM ceiling for `gpt-4.1`.
+- **Why not higher concurrency?**: Each window is a 32K-output-token call with
+  PDF visions input; throughput is bounded by per-organization rate limits.
+  Empirically 3 saturates without 429s. Configurable per environment if needed.
+
+---
+
 ## R-18. Deployment surface
 
 - **Decision**: For v1 demo, a `Dockerfile` for `apps/api` and a static build of

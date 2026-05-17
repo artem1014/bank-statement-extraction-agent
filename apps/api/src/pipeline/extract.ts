@@ -1,7 +1,9 @@
 import { ExtractResultSchema } from '@app/contracts';
 import { ExtractionFailedError } from '../domain/errors.js';
 import type { ExtractResult, Transaction } from '../domain/types.js';
+import { mapWithConcurrency } from '../utils/concurrency.js';
 import { logger } from '../utils/logger.js';
+import { mapOcrPeriodsToPageRanges, parseOcrPeriods } from './ocr-indexer.js';
 import type {
   OpenAIPipelineClient,
   PeriodHint,
@@ -9,10 +11,11 @@ import type {
   RawLlmExtraction,
   TransactionRow,
 } from './openai-client.js';
-import { type PdfChunk, splitPdf } from './pdf-splitter.js';
+import { type PdfChunk, countPages, splitPdf } from './pdf-splitter.js';
 import { buildSummary, reconcile } from './reconcile.js';
 
 const TX_PAGE_WINDOW = 2;
+const TX_WINDOW_CONCURRENCY = 3;
 
 export interface ExtractProgressEvent {
   stage: 'parse' | 'extract' | 'reconcile';
@@ -26,6 +29,7 @@ export interface ExtractInput {
   promptVersion: string;
   chunkBudgetBytes: number;
   chunkPageBudget: number;
+  ocrText?: string;
   onProgress?: (e: ExtractProgressEvent) => void | Promise<void>;
 }
 
@@ -56,8 +60,11 @@ export async function extractPdf(input: ExtractInput): Promise<ExtractResult[]> 
   await emit({ stage: 'parse', status: 'done', detail: `${chunks.length} chunks` });
 
   await emit({ stage: 'extract', status: 'active', detail: 'indexing periods' });
-  const indexed = await indexAllPeriods(chunks, input.client);
-  logger.info({ periods: indexed.length }, 'index-done');
+  const totalPages = chunks.at(-1)?.endPage ?? (await countPages(input.pdfBytes));
+  const indexed = input.ocrText
+    ? indexFromOcr(input.ocrText, totalPages)
+    : sanitizeIndexedPeriods(await indexAllPeriods(chunks, input.client));
+  logger.info({ periods: indexed.length, source: input.ocrText ? 'ocr' : 'llm' }, 'index-done');
   await emit({
     stage: 'extract',
     status: 'active',
@@ -97,6 +104,74 @@ export async function extractPdf(input: ExtractInput): Promise<ExtractResult[]> 
   await emit({ stage: 'reconcile', status: 'done' });
 
   return results;
+}
+
+function indexFromOcr(ocrText: string, totalPdfPages: number): IndexedPeriod[] {
+  const periods = parseOcrPeriods(ocrText);
+  if (periods.length === 0) {
+    logger.warn('ocr-indexer-found-no-periods');
+    return [];
+  }
+  const mapped = mapOcrPeriodsToPageRanges(ocrText, periods, totalPdfPages);
+  return mapped.map((p, i) => ({
+    key: `${p.start_date}_${p.end_date}_${p.account_last4 ?? 'unknown'}_${i}`,
+    bank: p.bank,
+    account_last4: p.account_last4,
+    start_date: p.start_date,
+    end_date: p.end_date,
+    absoluteStartPage: p.absoluteStartPage,
+    absoluteEndPage: p.absoluteEndPage,
+  }));
+}
+
+function sanitizeIndexedPeriods(raw: IndexedPeriod[]): IndexedPeriod[] {
+  const filtered = raw.filter((p) => {
+    const days = diffDaysIso(p.start_date, p.end_date);
+    if (days < 3) {
+      logger.info({ period: p.key, days }, 'drop-suspicious-short-period');
+      return false;
+    }
+    return true;
+  });
+  const merged: IndexedPeriod[] = [];
+  for (const p of filtered.sort((a, b) => a.absoluteStartPage - b.absoluteStartPage)) {
+    const prev = merged[merged.length - 1];
+    if (
+      prev &&
+      prev.account_last4 === p.account_last4 &&
+      isContiguousByCalendarMonth(prev, p) === false &&
+      isOverlappingPages(prev, p)
+    ) {
+      logger.info({ period: p.key, mergedInto: prev.key }, 'merge-overlapping-same-account');
+      prev.absoluteEndPage = Math.max(prev.absoluteEndPage, p.absoluteEndPage);
+      prev.end_date = pickLater(prev.end_date, p.end_date);
+      continue;
+    }
+    merged.push(p);
+  }
+  return merged;
+}
+
+function diffDaysIso(a: string, b: string): number {
+  const da = Date.parse(a);
+  const db = Date.parse(b);
+  if (Number.isNaN(da) || Number.isNaN(db)) return 0;
+  return Math.abs(Math.round((db - da) / (1000 * 60 * 60 * 24)));
+}
+
+function isOverlappingPages(a: IndexedPeriod, b: IndexedPeriod): boolean {
+  return !(a.absoluteEndPage < b.absoluteStartPage || b.absoluteEndPage < a.absoluteStartPage);
+}
+
+function isContiguousByCalendarMonth(a: IndexedPeriod, b: IndexedPeriod): boolean {
+  const aEnd = new Date(`${a.end_date}T00:00:00Z`);
+  const bStart = new Date(`${b.start_date}T00:00:00Z`);
+  const oneDay = 86_400_000;
+  return Math.abs(bStart.getTime() - aEnd.getTime()) <= 2 * oneDay;
+}
+
+function pickLater(a: string, b: string): string {
+  return Date.parse(a) >= Date.parse(b) ? a : b;
 }
 
 async function indexAllPeriods(
@@ -230,28 +305,26 @@ async function extractAllTransactionsInWindows(
     account_last4: period.account_last4,
     bank: period.bank,
   };
-  const all: TransactionRow[] = [];
-  for (const s of slices) {
+  const perSlice = await mapWithConcurrency(slices, TX_WINDOW_CONCURRENCY, async (s) => {
     const label = `period-${period.start_date}-tx-${s.startPage}-${s.endPage}`;
     try {
       const part = await client.extractTransactionRows(s.bytes, label, hint, {
         startInPeriod: s.startPage,
         endInPeriod: s.endPage,
       });
-      for (const t of part.transactions) {
-        all.push({
-          ...t,
-          source_span: {
-            ...t.source_span,
-            page: t.source_span?.page != null ? t.source_span.page + s.startPage - 1 : null,
-          },
-        });
-      }
+      return part.transactions.map((t) => ({
+        ...t,
+        source_span: {
+          ...t.source_span,
+          page: t.source_span?.page != null ? t.source_span.page + s.startPage - 1 : null,
+        },
+      }));
     } catch (e) {
       logger.warn({ err: e, period: period.key, slice: label }, 'tx-window-failed');
+      return [] as TransactionRow[];
     }
-  }
-  return all;
+  });
+  return perSlice.flat();
 }
 
 function mergeTransactionPool(

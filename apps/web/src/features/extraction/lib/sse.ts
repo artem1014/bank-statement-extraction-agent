@@ -1,8 +1,12 @@
 import type { ErrorBody, ExtractResult, StageEventData } from '@app/contracts';
 
+export interface ResultPayload {
+  periods: ExtractResult[];
+}
+
 export type SseEvent =
   | { type: 'stage'; data: StageEventData }
-  | { type: 'result'; data: ExtractResult }
+  | { type: 'result'; data: ResultPayload }
   | { type: 'error'; data: ErrorBody };
 
 export interface SseStreamOptions {
@@ -68,7 +72,7 @@ export async function* extractStream(opts: SseStreamOptions): AsyncGenerator<Sse
     try {
       const parsed = JSON.parse(data);
       if (event === 'stage') yield { type: 'stage', data: parsed as StageEventData };
-      else if (event === 'result') yield { type: 'result', data: parsed as ExtractResult };
+      else if (event === 'result') yield { type: 'result', data: parsed as ResultPayload };
       else if (event === 'error') yield { type: 'error', data: parsed as ErrorBody };
     } catch {
       yield {

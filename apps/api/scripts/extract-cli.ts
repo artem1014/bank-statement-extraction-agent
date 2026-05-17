@@ -17,24 +17,38 @@ const { createOpenAIClient } = await import('../src/pipeline/openai-client.js');
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args.length === 0) {
-    console.error('usage: pnpm -F @app/api extract:cli <path/to.pdf> [--out result.json]');
+    console.error(
+      'usage: pnpm -F @app/api extract:cli <path/to.pdf> [--ocr <path.txt|rtf>] [--out result.json]',
+    );
     process.exit(2);
   }
   const pdfPath = resolve(process.cwd(), args[0] as string);
   const outIdx = args.indexOf('--out');
+  const ocrIdx = args.indexOf('--ocr');
   const outPath =
     outIdx >= 0 && args[outIdx + 1]
       ? resolve(process.cwd(), args[outIdx + 1] as string)
       : resolve(REPO_ROOT, 'out', `${basename(pdfPath, '.pdf')}.extracted.json`);
+  const ocrPath =
+    ocrIdx >= 0 && args[ocrIdx + 1] ? resolve(process.cwd(), args[ocrIdx + 1] as string) : null;
 
   if (!existsSync(pdfPath)) {
     console.error(`PDF not found: ${pdfPath}`);
     process.exit(2);
   }
+  if (ocrPath && !existsSync(ocrPath)) {
+    console.error(`OCR file not found: ${ocrPath}`);
+    process.exit(2);
+  }
   mkdirSync(dirname(outPath), { recursive: true });
 
   const pdfBytes = new Uint8Array(readFileSync(pdfPath));
+  const ocrText = ocrPath ? readFileSync(ocrPath, 'utf8') : undefined;
   console.error(`[extract-cli] PDF: ${pdfPath} (${pdfBytes.length.toLocaleString()} bytes)`);
+  if (ocrPath)
+    console.error(
+      `[extract-cli] OCR sidecar: ${ocrPath} (${ocrText?.length.toLocaleString()} chars)`,
+    );
   console.error(`[extract-cli] model: ${config.OPENAI_MODEL}`);
   console.error(
     `[extract-cli] chunk budget: ${config.OPENAI_CHUNK_BUDGET_BYTES.toLocaleString()} bytes, ` +
@@ -46,9 +60,10 @@ async function main(): Promise<void> {
   const results = await extractPdf({
     pdfBytes,
     client,
-    promptVersion: 'v2.0.0',
+    promptVersion: 'v2.1.0',
     chunkBudgetBytes: config.OPENAI_CHUNK_BUDGET_BYTES,
     chunkPageBudget: config.OPENAI_CHUNK_PAGE_BUDGET,
+    ocrText,
     onProgress: async (e) => {
       const t = ((Date.now() - t0) / 1000).toFixed(1);
       console.error(`[${t}s] ${e.stage}/${e.status}${e.detail ? ` — ${e.detail}` : ''}`);

@@ -64,3 +64,8 @@ data/processed/
 data/**/*.pdf
 /out/
 apps/api/scripts/.out/
+
+apps/web/*.config.js
+apps/web/*.config.js.map
+apps/web/*.config.d.ts
+apps/web/*.config.d.ts.map

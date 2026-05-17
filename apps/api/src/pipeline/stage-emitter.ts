@@ -1,5 +1,10 @@
 import type { ErrorBody, ExtractResult, StageName, StageStatus } from '../domain/types.js';
 
+export type ExtractEventData =
+  | { kind: 'stage'; stage: StageName; status: StageStatus; detail?: string }
+  | { kind: 'result'; results: ExtractResult[] }
+  | { kind: 'error'; body: ErrorBody };
+
 export interface SseSink {
   write(chunk: string): void | Promise<void>;
   close(): void | Promise<void>;
@@ -15,18 +20,19 @@ export class StageEmitter {
 
   constructor(private readonly sink: SseSink) {}
 
-  async emitStage(stage: StageName, status: StageStatus): Promise<void> {
+  async emitStage(stage: StageName, status: StageStatus, detail?: string): Promise<void> {
     if (this.closed) return;
     const seen = this.emitted.get(stage) ?? new Set<StageStatus>();
-    if (seen.has(status)) return;
-    seen.add(status);
+    const dedupKey = `${status}|${detail ?? ''}` as StageStatus;
+    if (seen.has(dedupKey)) return;
+    seen.add(dedupKey);
     this.emitted.set(stage, seen);
-    await this.sink.write(frame('stage', { stage, status }));
+    await this.sink.write(frame('stage', { stage, status, detail }));
   }
 
-  async emitResult(result: ExtractResult): Promise<void> {
+  async emitResult(results: ExtractResult[]): Promise<void> {
     if (this.closed) return;
-    await this.sink.write(frame('result', result));
+    await this.sink.write(frame('result', { periods: results }));
     await this.close();
   }
 
