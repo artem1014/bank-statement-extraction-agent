@@ -4,5 +4,14 @@ alwaysApply: true
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
+shell commands, and other important information, read the current plan at
+[specs/001-pdf-statement-extractor/plan.md](mdc:specs/001-pdf-statement-extractor/plan.md).
+
+Related artefacts for this feature:
+- Spec:        [specs/001-pdf-statement-extractor/spec.md](mdc:specs/001-pdf-statement-extractor/spec.md)
+- Research:    [specs/001-pdf-statement-extractor/research.md](mdc:specs/001-pdf-statement-extractor/research.md)
+- Data model:  [specs/001-pdf-statement-extractor/data-model.md](mdc:specs/001-pdf-statement-extractor/data-model.md)
+- Contracts:   [specs/001-pdf-statement-extractor/contracts/](mdc:specs/001-pdf-statement-extractor/contracts/)
+- Quickstart:  [specs/001-pdf-statement-extractor/quickstart.md](mdc:specs/001-pdf-statement-extractor/quickstart.md)
+- Constitution: [.specify/memory/constitution.md](mdc:.specify/memory/constitution.md)
 <!-- SPECKIT END -->
