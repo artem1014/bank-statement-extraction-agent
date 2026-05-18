@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema#",
+  "$id": "https://github.com/artem1014/bank-statement-extraction-agent/specs/001-pdf-statement-extractor/contracts/extract-result-array.schema.json",
+  "title": "ExtractResultArray",
+  "description": "Top-level result of the multi-period extraction pipeline: an ordered array of ExtractResult, one entry per statement period present in the PDF. Generated from packages/contracts/src/schemas.ts via zod-to-json-schema; do not edit by hand.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "account": {
+        "type": "object",
+        "properties": {
+          "bank": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "account_last4": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "period": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "end": {
+                "$ref": "#/definitions/ExtractResultArray/items/properties/account/properties/period/properties/start"
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "bank",
+          "account_last4",
+          "period"
+        ],
+        "additionalProperties": false
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "beginning_balance": {
+            "type": "number"
+          },
+          "ending_balance": {
+            "type": "number"
+          },
+          "deposits_total": {
+            "type": "number",
+            "minimum": 0
+          },
+          "deposits_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "withdrawals_total": {
+            "type": "number",
+            "minimum": 0
+          },
+          "withdrawals_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reconciliation": {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              },
+              "delta": {
+                "type": "number"
+              },
+              "expected_ending": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "ok",
+              "delta",
+              "expected_ending"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "beginning_balance",
+          "ending_balance",
+          "deposits_total",
+          "deposits_count",
+          "withdrawals_total",
+          "withdrawals_count",
+          "reconciliation"
+        ],
+        "additionalProperties": false
+      },
+      "transactions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "$ref": "#/definitions/ExtractResultArray/items/properties/account/properties/period/properties/start"
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1
+            },
+            "deposit": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "withdrawal": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source_span": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": true,
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "char_start": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "char_end": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "page",
+                "char_start",
+                "char_end"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "date",
+            "description",
+            "deposit",
+            "withdrawal",
+            "source_span"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "extraction": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prompt_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "model",
+          "prompt_version",
+          "duration_ms",
+          "warnings"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "account",
+      "summary",
+      "transactions",
+      "extraction"
+    ],
+    "additionalProperties": false
+  }
+}

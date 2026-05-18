@@ -1,0 +1,13 @@
+{
+  "extends": "@app/tsconfig/react.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./.tsbuildinfo.app",
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["src", "tests/unit"],
+  "exclude": ["node_modules", "dist", "tests/e2e"]
+}

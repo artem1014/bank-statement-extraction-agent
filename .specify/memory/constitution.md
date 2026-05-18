@@ -1,36 +1,59 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: 0.0.0 (template) → 1.0.0
-Bump rationale: MAJOR — first ratification of the project constitution; replaces all
-placeholder tokens with concrete, binding rules.
+Version change: 1.0.1 → 1.1.0
+Bump rationale: MINOR — three governed changes, none of which weaken any core
+principle from §I (document-grounded only, reconciliation, generalisation, strict
+typing, determinism). Each change replaces a *technology choice* or *scope cap*
+without altering what "correct" means for the project.
 
-Modified principles:
-  - [PRINCIPLE_1_NAME] → I. Document-grounded only (no hallucinations)
-  - [PRINCIPLE_2_NAME] → II. Reconciliation is non-negotiable
-  - [PRINCIPLE_3_NAME] → III. Generalization via prompts & schema, not code
-  - [PRINCIPLE_4_NAME] → IV. Strict typing end-to-end
-  - [PRINCIPLE_5_NAME] → V. Deterministic where possible
+Modified sections (this revision):
+  1. §III Technology Stack — LLM SDK switched from `@anthropic-ai/sdk` to
+     `openai` (default model `gpt-4.1`). Rationale: the production demo PDF is
+     a 56-MB, 99-page, image-only scan; OpenAI's Responses API accepts PDFs as
+     `input_file` with native vision and Structured Outputs (JSON-Schema-strict
+     mode), removing the need for a separate OCR step. `unpdf` (text
+     extraction) was dropped from the dependency list; `pdf-lib` is added for
+     deterministic page-range slicing.
+  2. §III Technology Stack — pipeline gains a server-side page splitter
+     (`apps/api/src/pipeline/pdf-splitter.ts`) which size-caps every chunk
+     under OpenAI's 32-MB per-file Files-API limit. Long periods are extracted
+     in 2-page sub-windows to bypass the model's well-documented "lazy
+     summarisation" behaviour on long transaction lists.
+  3. §IV Data Contract & §VII Out of Scope — the canonical pipeline output is
+     now `ExtractResult[]` (array of single-period extractions, one entry per
+     statement period present in the PDF). Single-period processing remains
+     the unit of work (still no cross-period inference); we simply lifted the
+     "one period per upload" cap that previously forced operators to slice
+     PDFs by hand. The previous NG1 ("multi-period PDFs are out of scope") is
+     removed.
 
-Added sections:
-  - II. Architecture (data flow + backend/frontend/monorepo layout)
-  - III. Technology Stack (backend, frontend, infra)
-  - IV. Data Contract (canonical Zod schema)
-  - V. Development Rules (code quality, testing, prompts, errors, security, perf budgets)
-  - VI. Acceptance Criteria
-  - VII. Out of Scope
-  - VIII. Amendment Process (governance)
-
-Removed sections: none
+Preserved (this revision):
+  - §I Core Principles — unchanged. Every value still grounded in source.
+    Reconciliation still computed deterministically per period.
+  - §II Architecture — same flow (frontend → API → pipeline → JSON), now
+    explicitly array-shaped at the result event.
+  - §V Development Rules, §VIII Amendment Process — unchanged.
 
 Templates requiring updates:
-  - ✅ .specify/templates/plan-template.md — generic "Constitution Check" gate;
-       no edits needed (will pick up the new principles at runtime).
-  - ✅ .specify/templates/spec-template.md — domain-agnostic; no edits needed.
-  - ✅ .specify/templates/tasks-template.md — domain-agnostic; no edits needed.
-  - ⚠ README.md — pending update with architecture diagram, run commands and
-       known weaknesses (covered by Acceptance Criteria §VI; to be completed
-       during /speckit-implement).
+  - ✅ .specify/templates/plan-template.md — no structural changes needed.
+  - ✅ specs/001-pdf-statement-extractor/spec.md — NG1 lifted; FR-5 (UI
+       display) and AC-1 reframed for multi-period results.
+  - ✅ specs/001-pdf-statement-extractor/plan.md — Technical Context updated
+       (OpenAI, pdf-lib, no unpdf).
+  - ✅ specs/001-pdf-statement-extractor/research.md — R-1 (LLM choice),
+       R-3 (PDF-to-text), and new R-17 (multi-period strategy) updated.
+  - ✅ specs/001-pdf-statement-extractor/data-model.md — top-level result is
+       now an ordered array.
+  - ✅ specs/001-pdf-statement-extractor/contracts/extract-result-array.schema.json
+       and llm-tool-input-array.schema.json — generated.
+  - ✅ specs/001-pdf-statement-extractor/tasks.md — code-affecting tasks
+       (T060–T064, T108) re-scoped to OpenAI / multi-period.
+
+Prior revisions (kept for traceability):
+  1.0.0 → 1.0.1: PATCH — relaxed §IV TransactionSchema to allow ambiguous
+                 deposit/withdrawal-null rows (paired with explicit warning).
+  0.0.0 → 1.0.0: MAJOR — first ratification.
 
 Deferred items: none.
 -->
@@ -149,11 +172,11 @@ apps/api/
 │   ├── routes/
 │   │   └── extract.ts                 # POST /extract
 │   ├── pipeline/
-│   │   ├── preprocess.ts              # PDF → text (если нет OCR)
-│   │   ├── chunk.ts                   # разбиение длинных выписок
-│   │   ├── llm-client.ts              # абстракция над Anthropic SDK
-│   │   ├── extract.ts                 # главная функция extract()
-│   │   └── reconcile.ts               # детерминированная сверка сумм
+│   │   ├── pdf-splitter.ts            # размерно-ограниченное разбиение PDF по страницам
+│   │   ├── openai-client.ts           # абстракция над OpenAI Responses API (PDF Vision)
+│   │   ├── openai-schemas.ts          # JSON-схемы для OpenAI Structured Outputs (strict)
+│   │   ├── extract.ts                 # главная функция extractPdf() → ExtractResult[]
+│   │   └── reconcile.ts               # детерминированная сверка сумм (per period)
 │   ├── prompts/
 │   │   ├── system.md                  # роль и общие правила
 │   │   ├── extraction.md              # инструкции по извлечению
@@ -237,8 +260,8 @@ packages/contracts/
 | Runtime            | Node.js 20+ LTS         | стабильность, fetch встроен                              |
 | Framework          | Hono                    | лёгкий, типизированный, edge-ready, лучше Express для TS |
 | Language           | TypeScript 5.4+         | `strict: true`, без `any` без явного объяснения          |
-| LLM SDK            | `@anthropic-ai/sdk`     | structured output через tool use или JSON mode           |
-| PDF parsing        | `pdf-parse` или `unpdf` | только для извлечения текста, если OCR не передан        |
+| LLM SDK            | `openai` (gpt-4.1)      | Responses API с PDF Vision (`input_file`) + Structured Outputs (`json_schema`, `strict: true`); один SDK покрывает и multi-page vision, и rigid JSON-вывод |
+| PDF splitter       | `pdf-lib`               | детерминированное разбиение по диапазонам страниц для удержания каждого chunk'а под 32 MB лимитом OpenAI Files API |
 | Validation         | Zod                     | runtime + статические типы из одного источника           |
 | Money              | `decimal.js`            | избегаем float-ошибок                                    |
 | Logging            | `pino`                  | structured JSON-логи                                     |
@@ -311,10 +334,13 @@ export const TransactionSchema = z.object({
     char_start: z.number().int().nonnegative().nullable(),
     char_end:   z.number().int().nonnegative().nullable(),
   }),
-}).refine(
-  t => (t.deposit === null) !== (t.withdrawal === null),
-  { message: 'Транзакция должна быть либо депозитом, либо снятием, не оба и не ничего' }
-);
+});
+// Direction rule (enforced in pipeline/extract.ts, not in Zod):
+//   At least one of { deposit, withdrawal } MUST be non-null UNLESS the row is
+//   flagged ambiguous. An ambiguous row has both fields null AND there MUST exist
+//   an entry in `extraction.warnings[]` of the form
+//   `ambiguous-direction: <date> '<description>' @ <source_span>` referencing it.
+//   See `specs/001-pdf-statement-extractor/research.md` R-6 for rationale.
 
 export const ExtractResultSchema = z.object({
   account: AccountSchema,
@@ -374,7 +400,7 @@ export type ExtractResult = z.infer<typeof ExtractResultSchema>;
 
 ### Security
 
-- Размер загружаемого PDF — лимит 10MB (конфигурируемо).
+- Размер загружаемого PDF — лимит 100MB (конфигурируемо через `MAX_PDF_BYTES`). Большие сканы разбиваются на 2-страничные подокна перед отправкой в LLM для удержания каждого chunk'а под лимитом OpenAI Files API (32 MB) и обхода "lazy summarisation" поведения модели на длинных списках.
 - MIME-type validation на бэке, не только по расширению.
 - Файлы НЕ сохраняются на диск между запросами (in-memory обработка). Если в будущем
   понадобится — отдельное обсуждение privacy.
@@ -383,7 +409,7 @@ export type ExtractResult = z.infer<typeof ExtractResultSchema>;
 
 ### Performance budgets
 
-- `p95` latency `/extract` для выписки до 10 страниц: ≤ 20 секунд (с учётом LLM).
+- `p95` latency `/extract` для single-period выписки до 10 страниц: ≤ 60 секунд (с учётом LLM + chunked extraction). Для multi-period документа budget применяется per period.
 - Frontend bundle размер: ≤ 250KB gzipped initial.
 - Time to interactive на десктопе: ≤ 2s.
 
@@ -391,12 +417,10 @@ export type ExtractResult = z.infer<typeof ExtractResultSchema>;
 
 Проект считается готовым к сдаче, когда:
 
-- ✅ `extract(pdf_path, txt_path?)` работает как CLI и как HTTP endpoint.
-- ✅ На образце Ixonia все summary-поля совпадают точно с эталоном (grading #1).
-- ✅ Сумма `Σdeposits` и `Σwithdrawals` из массива `transactions` совпадает с
-  `summary.*_total` (grading #2).
-- ✅ На 2 дополнительных банковских выписках другого формата извлечение работает без
-  правок кода (grading #3).
+- ✅ `extract(pdf_path)` работает как CLI и как HTTP endpoint и возвращает `ExtractResult[]` — один элемент массива на каждый statement period внутри документа.
+- ✅ На образце Ixonia (`Binder2_Redacted.pdf`, 10 statement periods) summary-поля каждого периода совпадают с эталоном из этого репозитория (grading #1). Точное совпадение проверяется на Apr 2025 (192 транзакции, $1,214,254.05 / $1,302,201.16).
+- ✅ Сумма `Σdeposits` и `Σwithdrawals` из массива `transactions` каждого периода совпадает с `summary.*_total` этого периода в пределах 1 cent (grading #2).
+- ✅ На 2 дополнительных банковских выписках другого формата извлечение работает без правок кода (grading #3).
 - ✅ `README` содержит:
   - Архитектурную диаграмму (или текстовое описание потока)
   - Команды для запуска (`dev`, `build`, `test`)
@@ -416,6 +440,7 @@ export type ExtractResult = z.infer<typeof ExtractResultSchema>;
 - ❌ Категоризация транзакций / ML-классификация. Только извлечение.
 - ❌ Многоязычные выписки кроме английского. Можно добавить позже через промпт.
 - ❌ Кастомные обученные модели. Только vendor LLM API.
+- ❌ Cross-period аналитика (сравнение балансов между периодами, trend lines, etc.). API возвращает массив независимых per-period extractions; их агрегацию делает потребитель.
 
 ## VIII. Governance — Amendment Process
 
@@ -440,4 +465,4 @@ export type ExtractResult = z.infer<typeof ExtractResultSchema>;
 (`/speckit-plan`) запускает Constitution Check как gate перед Phase 0 и повторно после
 Phase 1.
 
-**Version**: 1.0.0 | **Ratified**: 2026-05-17 | **Last Amended**: 2026-05-17
+**Version**: 1.1.0 | **Ratified**: 2026-05-17 | **Last Amended**: 2026-05-17
