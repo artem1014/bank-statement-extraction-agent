@@ -1,4 +1,18 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
+
+for (const candidate of [
+  resolve(process.cwd(), '.env'),
+  resolve(process.cwd(), '..', '..', '.env'),
+  resolve(import.meta.dirname ?? process.cwd(), '..', '..', '..', '.env'),
+]) {
+  if (existsSync(candidate)) {
+    loadDotenv({ path: candidate, override: false });
+    break;
+  }
+}
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

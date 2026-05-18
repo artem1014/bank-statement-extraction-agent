@@ -35,6 +35,9 @@ importers:
       decimal.js:
         specifier: ^10.4.3
         version: 10.6.0
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
       hono:
         specifier: ^4.6.5
         version: 4.12.19
@@ -60,9 +63,6 @@ importers:
       '@types/node':
         specifier: ^20.16.11
         version: 20.19.41
-      dotenv:
-        specifier: ^16.4.5
-        version: 16.6.1
       tsx:
         specifier: ^4.19.1
         version: 4.22.1

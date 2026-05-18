@@ -16,6 +16,7 @@
     "@app/contracts": "workspace:*",
     "@hono/node-server": "^1.13.2",
     "decimal.js": "^10.4.3",
+    "dotenv": "^16.4.5",
     "hono": "^4.6.5",
     "openai": "^4.85.4",
     "pdf-lib": "^1.17.1",
@@ -26,7 +27,6 @@
   "devDependencies": {
     "@app/tsconfig": "workspace:*",
     "@types/node": "^20.16.11",
-    "dotenv": "^16.4.5",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
     "vitest": "^2.1.4"
