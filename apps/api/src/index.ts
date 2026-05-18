@@ -1,4 +1,8 @@
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { config } from './config.js';
@@ -7,6 +11,9 @@ import { healthRoute } from './routes/health.js';
 import { logger } from './utils/logger.js';
 
 const app = new Hono();
+const HERE = dirname(fileURLToPath(import.meta.url));
+const WEB_DIST = resolve(HERE, '..', '..', 'web', 'dist');
+const SERVE_WEB = existsSync(WEB_DIST);
 
 app.use(
   '*',
@@ -35,6 +42,12 @@ app.use('*', async (c, next) => {
 
 app.route('/api/health', healthRoute);
 app.route('/api/extract', extractRoute);
+
+if (SERVE_WEB) {
+  app.use('/assets/*', serveStatic({ root: WEB_DIST, rewriteRequestPath: (p) => p }));
+  app.get('*', serveStatic({ path: `${WEB_DIST}/index.html` }));
+  logger.info({ webDist: WEB_DIST }, 'serving-web-static');
+}
 
 app.notFound((c) => c.json({ code: 'BAD_FILE', message: 'Not found' }, 404));
 
