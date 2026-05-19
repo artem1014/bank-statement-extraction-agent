@@ -1,9 +1,11 @@
 import { ExtractResultSchema } from '@app/contracts';
+import type { ExtractionMode } from '../config.js';
 import { ExtractionFailedError } from '../domain/errors.js';
 import type { ExtractResult, Transaction } from '../domain/types.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
 import { logger } from '../utils/logger.js';
 import { mapOcrPeriodsToPageRanges, parseOcrPeriods } from './ocr-indexer.js';
+import { extractWithOcrFirst } from './ocr-orchestrator.js';
 import type {
   OpenAIPipelineClient,
   PeriodHint,
@@ -31,6 +33,61 @@ export interface ExtractInput {
   chunkPageBudget: number;
   ocrText?: string;
   onProgress?: (e: ExtractProgressEvent) => void | Promise<void>;
+}
+
+export interface ExtractDispatchInput extends ExtractInput {
+  mode: ExtractionMode;
+  requestId: string;
+}
+
+export async function extractDispatch(input: ExtractDispatchInput): Promise<ExtractResult[]> {
+  const hasOcr = typeof input.ocrText === 'string' && input.ocrText.trim().length > 0;
+  const { mode } = input;
+
+  if (mode === 'llm-only') {
+    const results = await extractPdf({ ...input, ocrText: undefined });
+    if (hasOcr) {
+      for (const r of results) {
+        r.extraction.warnings = [...r.extraction.warnings, 'llm-only-mode-ignored-sidecar'];
+      }
+    }
+    return results;
+  }
+
+  if (mode === 'ocr-only') {
+    if (!hasOcr) {
+      const results = await extractPdf({ ...input, ocrText: undefined });
+      for (const r of results) {
+        r.extraction.warnings = [...r.extraction.warnings, 'ocr-only-mode-without-sidecar'];
+      }
+      return results;
+    }
+    return extractWithOcrFirst({
+      pdfBytes: input.pdfBytes,
+      ocrText: input.ocrText as string,
+      client: input.client,
+      mode: 'ocr-only',
+      promptVersion: input.promptVersion,
+      chunkBudgetBytes: input.chunkBudgetBytes,
+      requestId: input.requestId,
+      onProgress: input.onProgress,
+    });
+  }
+
+  if (hasOcr) {
+    return extractWithOcrFirst({
+      pdfBytes: input.pdfBytes,
+      ocrText: input.ocrText as string,
+      client: input.client,
+      mode: 'ocr-first',
+      promptVersion: input.promptVersion,
+      chunkBudgetBytes: input.chunkBudgetBytes,
+      requestId: input.requestId,
+      onProgress: input.onProgress,
+    });
+  }
+
+  return extractPdf({ ...input, ocrText: undefined });
 }
 
 interface IndexedPeriod {

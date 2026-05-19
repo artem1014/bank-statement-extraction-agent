@@ -3,8 +3,8 @@ import type { StageProgress } from '../hooks/useExtract.js';
 
 const LABELS: Record<StageName, string> = {
   upload: 'Upload',
-  parse: 'Preprocess (split into chunks)',
-  extract: 'Extract via OpenAI',
+  parse: 'Preprocess (sidecar tokenise / PDF split)',
+  extract: 'Extract (OCR-first or LLM fallback)',
   reconcile: 'Reconcile balances',
 };
 

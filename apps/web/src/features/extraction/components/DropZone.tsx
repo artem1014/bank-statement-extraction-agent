@@ -97,9 +97,22 @@ export function DropZone({ busy, onSubmit }: Props): JSX.Element {
         </div>
       </div>
 
+      {pdf && !ocr && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+          <p className="font-medium">No OCR sidecar attached — falling back to LLM-only mode.</p>
+          <p className="mt-1 text-amber-900/80">
+            Every page will be sent to OpenAI Vision. On a 99-page document expect{' '}
+            <span className="font-semibold">~17 minutes</span> and{' '}
+            <span className="font-semibold">~$8–15</span> in API cost. Attach a <code>.rtf</code> /{' '}
+            <code>.txt</code> sidecar from Azure Document AI to switch to the fast OCR-first path
+            (seconds, $0).
+          </p>
+        </div>
+      )}
+
       <div className="flex justify-end">
         <Button disabled={!pdf || busy} onClick={() => pdf && onSubmit(pdf, ocr)}>
-          {busy ? 'Extracting…' : 'Extract'}
+          {busy ? 'Extracting…' : ocr ? 'Extract (OCR-first)' : 'Extract (LLM-only)'}
         </Button>
       </div>
     </div>

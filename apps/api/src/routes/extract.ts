@@ -5,17 +5,23 @@ import {
   BadFileError,
   ExtractionFailedError,
   LlmUnavailableError,
+  OcrSidecarInvalidError,
+  OcrSidecarTooLargeError,
   TypedError,
 } from '../domain/errors.js';
-import { extractPdf } from '../pipeline/extract.js';
+import { extractDispatch } from '../pipeline/extract.js';
 import { createOpenAIClient } from '../pipeline/openai-client.js';
 import { StageEmitter } from '../pipeline/stage-emitter.js';
-import { logger } from '../utils/logger.js';
+import { newCorrelationId } from '../utils/correlation.js';
+import { withCorrelation } from '../utils/logger.js';
 import { isPdfBuffer } from '../utils/mime.js';
 
 const PROMPT_VERSION = 'v2.1.0';
 
 export const extractRoute = new Hono().post('/', async (c) => {
+  const requestId = newCorrelationId();
+  c.header('X-Request-Id', requestId);
+  const log = withCorrelation(requestId);
   let form: FormData;
   try {
     form = await c.req.formData();
@@ -99,13 +105,15 @@ export const extractRoute = new Hono().post('/', async (c) => {
 
     try {
       const client = createOpenAIClient(config);
-      const results = await extractPdf({
+      const results = await extractDispatch({
         pdfBytes: pdfBuf,
         client,
         promptVersion: PROMPT_VERSION,
         chunkBudgetBytes: config.OPENAI_CHUNK_BUDGET_BYTES,
         chunkPageBudget: config.OPENAI_CHUNK_PAGE_BUDGET,
         ocrText,
+        mode: config.EXTRACTION_MODE,
+        requestId,
         onProgress: async (e) => {
           await emitter.emitStage(e.stage, e.status, e.detail);
         },
@@ -113,18 +121,35 @@ export const extractRoute = new Hono().post('/', async (c) => {
       await emitter.emitResult(results);
     } catch (err) {
       const typed = err instanceof TypedError ? err : null;
+      const referenceTag = `Reference: ${requestId}.`;
       const body =
         typed instanceof BadFileError
-          ? { code: 'BAD_FILE' as const, message: typed.userMessage }
-          : typed instanceof LlmUnavailableError
-            ? { code: 'LLM_UNAVAILABLE' as const, message: typed.userMessage }
-            : typed instanceof ExtractionFailedError
-              ? { code: 'EXTRACTION_FAILED' as const, message: typed.userMessage }
-              : {
-                  code: 'EXTRACTION_FAILED' as const,
-                  message: 'An unexpected error occurred during extraction.',
-                };
-      logger.error({ err }, 'extract-route-failed');
+          ? { code: 'BAD_FILE' as const, message: `${typed.userMessage} ${referenceTag}` }
+          : typed instanceof OcrSidecarTooLargeError
+            ? {
+                code: 'OCR_SIDECAR_TOO_LARGE' as const,
+                message: `${typed.userMessage} ${referenceTag}`,
+              }
+            : typed instanceof OcrSidecarInvalidError
+              ? {
+                  code: 'OCR_SIDECAR_INVALID' as const,
+                  message: `${typed.userMessage} ${referenceTag}`,
+                }
+              : typed instanceof LlmUnavailableError
+                ? {
+                    code: 'LLM_UNAVAILABLE' as const,
+                    message: `${typed.userMessage} ${referenceTag}`,
+                  }
+                : typed instanceof ExtractionFailedError
+                  ? {
+                      code: 'EXTRACTION_FAILED' as const,
+                      message: `${typed.userMessage} ${referenceTag}`,
+                    }
+                  : {
+                      code: 'EXTRACTION_FAILED' as const,
+                      message: `An unexpected error occurred during extraction. ${referenceTag}`,
+                    };
+      log.error({ err }, 'extract-route-failed');
       await emitter.emitError(body);
     }
   });

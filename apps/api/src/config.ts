@@ -37,7 +37,11 @@ const EnvSchema = z.object({
     .int()
     .positive()
     .default(2 * 1024 * 1024),
+  EXTRACTION_MODE: z.enum(['ocr-first', 'ocr-only', 'llm-only']).default('ocr-first'),
 });
+
+export const ExtractionModeSchema = z.enum(['ocr-first', 'ocr-only', 'llm-only']);
+export type ExtractionMode = z.infer<typeof ExtractionModeSchema>;
 
 export type Config = z.infer<typeof EnvSchema>;
 

@@ -44,6 +44,23 @@ export class LlmUnavailableError extends TypedError {
   }
 }
 
+export class OcrSidecarInvalidError extends TypedError {
+  constructor(
+    userMessage = 'The OCR sidecar could not be parsed into recognisable statement periods.',
+    cause?: unknown,
+  ) {
+    super('OCR_SIDECAR_INVALID', userMessage, cause);
+    this.name = 'OcrSidecarInvalidError';
+  }
+}
+
+export class OcrSidecarTooLargeError extends TypedError {
+  constructor(userMessage = 'The OCR sidecar exceeds the configured size limit.', cause?: unknown) {
+    super('OCR_SIDECAR_TOO_LARGE', userMessage, cause);
+    this.name = 'OcrSidecarTooLargeError';
+  }
+}
+
 export function isTypedError(e: unknown): e is TypedError {
   return e instanceof TypedError;
 }

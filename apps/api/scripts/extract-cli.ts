@@ -10,27 +10,35 @@ if (existsSync(resolve(REPO_ROOT, '.env'))) {
   loadEnvFromDotenv({ path: resolve(REPO_ROOT, '.env') });
 }
 
-const { config } = await import('../src/config.js');
-const { extractPdf } = await import('../src/pipeline/extract.js');
+const { config, ExtractionModeSchema } = await import('../src/config.js');
+const { extractDispatch } = await import('../src/pipeline/extract.js');
 const { createOpenAIClient } = await import('../src/pipeline/openai-client.js');
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args.length === 0) {
     console.error(
-      'usage: pnpm -F @app/api extract:cli <path/to.pdf> [--ocr <path.txt|rtf>] [--out result.json]',
+      'usage: pnpm -F @app/api extract:cli <path/to.pdf> [--ocr <path.txt|rtf>] [--out result.json] [--mode ocr-first|ocr-only|llm-only]',
     );
     process.exit(2);
   }
   const pdfPath = resolve(process.cwd(), args[0] as string);
   const outIdx = args.indexOf('--out');
   const ocrIdx = args.indexOf('--ocr');
+  const modeIdx = args.indexOf('--mode');
   const outPath =
     outIdx >= 0 && args[outIdx + 1]
       ? resolve(process.cwd(), args[outIdx + 1] as string)
       : resolve(REPO_ROOT, 'out', `${basename(pdfPath, '.pdf')}.extracted.json`);
   const ocrPath =
     ocrIdx >= 0 && args[ocrIdx + 1] ? resolve(process.cwd(), args[ocrIdx + 1] as string) : null;
+  const modeRaw = modeIdx >= 0 && args[modeIdx + 1] ? (args[modeIdx + 1] as string) : null;
+  const modeParsed = modeRaw ? ExtractionModeSchema.safeParse(modeRaw) : null;
+  if (modeRaw && (!modeParsed || !modeParsed.success)) {
+    console.error(`Invalid --mode "${modeRaw}". Allowed: ocr-first | ocr-only | llm-only.`);
+    process.exit(64);
+  }
+  const mode = modeParsed?.success ? modeParsed.data : config.EXTRACTION_MODE;
 
   if (!existsSync(pdfPath)) {
     console.error(`PDF not found: ${pdfPath}`);
@@ -50,6 +58,7 @@ async function main(): Promise<void> {
       `[extract-cli] OCR sidecar: ${ocrPath} (${ocrText?.length.toLocaleString()} chars)`,
     );
   console.error(`[extract-cli] model: ${config.OPENAI_MODEL}`);
+  console.error(`[extract-cli] mode: ${mode}${ocrPath ? '' : ' (no OCR sidecar)'}`);
   console.error(
     `[extract-cli] chunk budget: ${config.OPENAI_CHUNK_BUDGET_BYTES.toLocaleString()} bytes, ` +
       `${config.OPENAI_CHUNK_PAGE_BUDGET} pages`,
@@ -57,13 +66,15 @@ async function main(): Promise<void> {
 
   const t0 = Date.now();
   const client = createOpenAIClient(config);
-  const results = await extractPdf({
+  const results = await extractDispatch({
     pdfBytes,
     client,
     promptVersion: 'v2.1.0',
     chunkBudgetBytes: config.OPENAI_CHUNK_BUDGET_BYTES,
     chunkPageBudget: config.OPENAI_CHUNK_PAGE_BUDGET,
     ocrText,
+    mode,
+    requestId: 'cli',
     onProgress: async (e) => {
       const t = ((Date.now() - t0) / 1000).toFixed(1);
       console.error(`[${t}s] ${e.stage}/${e.status}${e.detail ? ` — ${e.detail}` : ''}`);

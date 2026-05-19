@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-export const ErrorCodeSchema = z.enum(['BAD_FILE', 'EXTRACTION_FAILED', 'LLM_UNAVAILABLE']);
+export const ErrorCodeSchema = z.enum([
+  'BAD_FILE',
+  'EXTRACTION_FAILED',
+  'LLM_UNAVAILABLE',
+  'OCR_SIDECAR_INVALID',
+  'OCR_SIDECAR_TOO_LARGE',
+]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
 export const ErrorBodySchema = z.object({

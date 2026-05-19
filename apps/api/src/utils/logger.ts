@@ -9,6 +9,14 @@ const REDACT_PATHS = [
   '*.openai_api_key',
   'env.OPENAI_API_KEY',
   'env.openai_api_key',
+  '*.sidecarText',
+  '*.rawText',
+  '*.ocrText',
+  '*.description',
+  '*.amount',
+  'sidecarText',
+  'rawText',
+  'ocrText',
 ];
 
 export const logger = pino({
@@ -26,3 +34,7 @@ export const logger = pino({
 });
 
 export type Logger = typeof logger;
+
+export function withCorrelation(requestId: string): Logger {
+  return logger.child({ requestId });
+}

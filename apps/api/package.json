@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome check src tests scripts",
-    "extract:cli": "tsx scripts/extract-cli.ts"
+    "extract:cli": "tsx scripts/extract-cli.ts",
+    "smoke:ocr-first": "tsx scripts/smoke-ocr-first.ts"
   },
   "dependencies": {
     "@app/contracts": "workspace:*",

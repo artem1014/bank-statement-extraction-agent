@@ -10,8 +10,20 @@ interface Props {
 
 export function PeriodCard({ result, index }: Props): JSX.Element {
   const [expanded, setExpanded] = useState(false);
-  const { account, summary, transactions } = result;
-  const { reconciliation } = summary;
+  const { account, summary, transactions, extraction } = result;
+
+  const computedEnding =
+    summary.beginning_balance + summary.deposits_total - summary.withdrawals_total;
+  const diff = computedEnding - summary.ending_balance;
+  const balances = Math.abs(diff) < 0.01;
+
+  const llmWarnings = extraction.warnings.filter((w) => w.startsWith('recovered-via-llm:'));
+  const sourceBadge =
+    extraction.model === 'ocr-deterministic' && llmWarnings.length === 0
+      ? { label: 'OCR-deterministic', tone: 'ocr' as const }
+      : llmWarnings.length > 0
+        ? { label: 'OCR + LLM fallback', tone: 'mixed' as const }
+        : { label: extraction.model, tone: 'llm' as const };
 
   return (
     <Card>
@@ -25,9 +37,22 @@ export function PeriodCard({ result, index }: Props): JSX.Element {
               {account.bank ?? 'Unknown bank'} · {formatLast4(account.account_last4)}
             </p>
           </div>
-          <Badge variant={reconciliation.ok ? 'default' : 'destructive'}>
-            {reconciliation.ok ? 'Balanced' : `Drift ${formatMoney(reconciliation.delta)}`}
-          </Badge>
+          <div className="flex flex-col items-end gap-1">
+            <Badge variant={balances ? 'default' : 'destructive'}>
+              {balances ? 'Balances' : 'Doesn’t balance'}
+            </Badge>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                sourceBadge.tone === 'ocr'
+                  ? 'bg-green-100 text-green-800'
+                  : sourceBadge.tone === 'mixed'
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {sourceBadge.label}
+            </span>
+          </div>
         </div>
       </CardHeader>
 
@@ -47,15 +72,41 @@ export function PeriodCard({ result, index }: Props): JSX.Element {
           />
         </div>
 
-        {!reconciliation.ok && (
-          <div className="rounded border border-destructive/40 bg-destructive/5 p-3 text-xs">
-            <p className="font-medium text-destructive">Reconciliation drift</p>
-            <p className="mt-1 text-destructive/90">
-              Expected ending balance: {formatMoney(reconciliation.expected_ending)} · reported{' '}
-              {formatMoney(summary.ending_balance)} · delta {formatMoney(reconciliation.delta)}
-            </p>
-          </div>
-        )}
+        <div
+          className={`rounded border p-3 text-xs ${
+            balances ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-300 bg-amber-50'
+          }`}
+        >
+          <p className={`font-medium ${balances ? 'text-emerald-800' : 'text-amber-900'}`}>
+            {balances ? 'Balance check passes' : 'Balance check does not match document'}
+          </p>
+          <p className={`mt-1 font-mono ${balances ? 'text-emerald-900/80' : 'text-amber-900/90'}`}>
+            {formatMoney(summary.beginning_balance)}
+            {'  +  '}
+            {formatMoney(summary.deposits_total)}
+            {'  −  '}
+            {formatMoney(summary.withdrawals_total)}
+            {'  =  '}
+            <span className="font-semibold">{formatMoney(computedEnding)}</span>
+          </p>
+          <p className={`mt-1 ${balances ? 'text-emerald-900/70' : 'text-amber-900/80'}`}>
+            {balances ? (
+              <>
+                Matches ending balance in document:{' '}
+                <span className="font-mono">{formatMoney(summary.ending_balance)}</span>
+              </>
+            ) : (
+              <>
+                Document reports ending{' '}
+                <span className="font-mono font-semibold">
+                  {formatMoney(summary.ending_balance)}
+                </span>{' '}
+                — difference <span className="font-mono font-semibold">{formatMoney(diff)}</span>{' '}
+                (likely Other Credits / Other Debits / Fees not in summary).
+              </>
+            )}
+          </p>
+        </div>
 
         <div>
           <button
